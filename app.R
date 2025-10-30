@@ -666,6 +666,25 @@ server <- function(input, output, session) {
       showNotification("❌ Выберите заявки для отклонения", type = "error")
     }
   })
+  # В app.R добавь:
+  observeEvent(input$admin_tabs, {
+    if (input$admin_tabs == "📋 Заявки на рассмотрение" && user$role == "admin") {
+      # Принудительно обновляем таблицу при открытии вкладки
+      output$pending_applications_table <- renderDT({
+        applications <- load_pending_applications()
+        if (nrow(applications) > 0) {
+          datatable(applications, 
+                    options = list(
+                      pageLength = 10,
+                      selection = 'multiple'
+                    ),
+                    rownames = FALSE)
+        } else {
+          datatable(data.frame(Сообщение = "Нет заявок на рассмотрении"))
+        }
+      })
+    }
+  })
   
   # Обработчик для новой кнопки выхода
   observeEvent(input$logout_btn, {
@@ -799,7 +818,52 @@ server <- function(input, output, session) {
       p("Нет активных конференций")
     }
   })
-  
+  # ГРАФИКИ
+#Статусы зяавок 
+  output$applications_status_plot <- renderPlot({
+    conn <- get_db_connection()
+    
+    # Получаем данные по статусам заявок
+    status_data <- dbGetQuery(conn, "
+    SELECT status, COUNT(*) as count 
+    FROM applications 
+    GROUP BY status
+  ")
+    
+    dbDisconnect(conn)
+    
+    if (nrow(status_data) > 0) {
+      # Русские названия статусов
+      status_data$status_ru <- factor(status_data$status,
+                                      levels = c("pending", "approved", "rejected"),
+                                      labels = c("На рассмотрении", "Одобрено", "Отклонено"))
+      total <- sum(status_data$count)
+      status_data$percent <- round(status_data$count / total * 100, 1)
+      
+      # Цвета
+      colors <- c("На рассмотрении" = "#ffc107", "Одобрено" = "#28a745", "Отклонено" = "#dc3545")
+      
+      # Круговая диаграмма с процентами на секторах
+      ggplot(status_data, aes(x = "", y = count, fill = status_ru)) +
+        geom_bar(stat = "identity", width = 1) +
+        coord_polar("y", start = 0) +
+        geom_text(aes(label = paste0(percent, "%")), 
+                  position = position_stack(vjust = 0.5),
+                  size = 6, 
+                  color = "white",
+                  fontface = "bold") +
+        scale_fill_manual(values = colors) +
+        labs(fill = "Статус") +
+        theme_void() +
+        theme(plot.title = element_text(hjust = 0.5, size = 16),
+              legend.position = "bottom",
+              legend.text = element_text(size = 12))
+    } else {
+      ggplot() +
+        annotate("text", x = 1, y = 1, label = "Нет данных о заявках", size = 6) +
+        theme_void()
+    }
+  })
   output$pending_apps <- renderValueBox({
     apps <- user_applications()
     count <- if (nrow(apps) > 0) sum(apps$status == "pending") else 0
