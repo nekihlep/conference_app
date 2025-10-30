@@ -3,7 +3,7 @@
     "path": "D:/Program Files/R/conference_app/app.R",
     "project_path": "app.R",
     "type": "r_source",
-    "hash": "2199746782",
+    "hash": "0",
     "contents": "",
     "dirty": false,
     "created": 1761813878983.0,
@@ -12,15 +12,15 @@
     "properties": {
         "source_window_id": "",
         "Source": "Source",
-        "cursorPosition": "67,31",
-        "scrollLine": "59"
+        "cursorPosition": "64,2",
+        "scrollLine": "56"
     },
     "folds": "",
-    "lastKnownWriteTime": 1761825636,
+    "lastKnownWriteTime": 1761826553,
     "encoding": "UTF-8",
     "collab_server": "",
     "source_window": "",
-    "last_content_update": 1761825636619,
+    "last_content_update": 1761826553608,
     "read_only": false,
     "read_only_alternatives": []
 }

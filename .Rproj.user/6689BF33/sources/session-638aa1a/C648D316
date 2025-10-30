@@ -3,7 +3,7 @@
     "path": "D:/Program Files/R/conference_app/R/auth.R",
     "project_path": "R/auth.R",
     "type": "r_source",
-    "hash": "2636303112",
+    "hash": "2106923597",
     "contents": "",
     "dirty": false,
     "created": 1761822500685.0,
@@ -12,15 +12,15 @@
     "properties": {
         "source_window_id": "",
         "Source": "Source",
-        "cursorPosition": "1,26",
-        "scrollLine": "0"
+        "cursorPosition": "66,5",
+        "scrollLine": "43"
     },
     "folds": "",
-    "lastKnownWriteTime": 1761825515,
+    "lastKnownWriteTime": 1761826157,
     "encoding": "UTF-8",
     "collab_server": "",
     "source_window": "",
-    "last_content_update": 1761825515787,
+    "last_content_update": 1761826157093,
     "read_only": false,
     "read_only_alternatives": []
 }

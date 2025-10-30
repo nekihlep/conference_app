@@ -61,7 +61,7 @@ initialize_database <- function() {
         
         -- Статус заявки (автоматически определяется по типу участия)
         status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'approved', 'rejected')),
-        applied_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+
         FOREIGN KEY(user_id) REFERENCES users(user_id),
         FOREIGN KEY(conference_id) REFERENCES conferences(conference_id)
       )

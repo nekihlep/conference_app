@@ -1,6 +1,5 @@
-# R/auth.R
+
 source("R/db_functions.R")
-# Функции аутентификации
 check_login <- function(username, password) {
   conn <- get_db_connection()
   

@@ -68,10 +68,12 @@ server <- function(input, output, session) {
     conn <- get_db_connection()
     applications <- dbGetQuery(conn,
                                "SELECT a.application_id, u.username, c.title, 
-            a.participation_type, a.topic, a.status
+            a.participation_type, a.topic, a.status,
+            a.applied_at
      FROM applications a
      JOIN users u ON a.user_id = u.user_id
-     JOIN conferences c ON a.conference_id = c.conference_id")
+     JOIN conferences c ON a.conference_id = c.conference_id
+     ORDER BY a.applied_at DESC")    # ← Сначала новые заявки!
     dbDisconnect(conn)
     all_applications_data(applications)
   }
