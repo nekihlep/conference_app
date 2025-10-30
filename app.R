@@ -1,13 +1,12 @@
-# app.R
 library(shiny)
 library(shinyjs)
 library(DBI)
 library(RSQLite)
 library(sodium)
 library(DT)
-
 source("R/db_functions.R")
 source("R/auth.R")
+source("R/logic.R")
 
 ui <- fluidPage(
   useShinyjs(),
@@ -37,31 +36,14 @@ server <- function(input, output, session) {
   user_applications <- reactiveVal(data.frame())
   all_applications_data <- reactiveVal(data.frame())
   
-  # Отладочный вывод для конференций
-  observe({
-    conferences <- conferences_data()
-    cat("=== ПРОВЕРКА КОНФЕРЕНЦИЙ ===\n")
-    cat("Количество конференций в conferences_data():", nrow(conferences), "\n")
-    if (nrow(conferences) > 0) {
-      cat("ID конференций:", paste(conferences$conference_id, collapse = ", "), "\n")
-      cat("Названия:", paste(conferences$title, collapse = ", "), "\n")
-    } else {
-      cat("КОНФЕРЕНЦИИ НЕ ЗАГРУЖЕНЫ!\n")
-    }
-    cat("===========================\n")
-  })
   
   # Загрузка данных при входе
   observeEvent(user$logged_in, {
     if (user$logged_in) {
-      cat("=== ЗАГРУЗКА ДАННЫХ ПРИ ВХОДЕ ===\n")
-      
       # Загружаем конференции
       conn <- get_db_connection()
       conferences <- dbGetQuery(conn, "SELECT * FROM conferences WHERE status = 'active'")
       dbDisconnect(conn)
-      
-      cat("Загружено конференций из БД:", nrow(conferences), "\n")
       conferences_data(conferences)
       
       # Загружаем заявки пользователя
@@ -89,8 +71,8 @@ server <- function(input, output, session) {
     user_applications(applications)
   }
   
-  # Функция загрузки всех заявок для админа
-  load_all_applications <- function() {
+  # Функция загрузки заявок на рассмотрение для админа
+  load_pending_applications <- function() {
     conn <- get_db_connection()
     applications <- dbGetQuery(conn,
                                "SELECT a.application_id, u.username, c.title, 
@@ -99,16 +81,37 @@ server <- function(input, output, session) {
      FROM applications a
      JOIN users u ON a.user_id = u.user_id
      JOIN conferences c ON a.conference_id = c.conference_id
+     WHERE a.status = 'pending'
      ORDER BY a.applied_at DESC")
     dbDisconnect(conn)
-    all_applications_data(applications)
+    return(applications)
   }
-  observe({
-    cat("=== ПРОВЕРКА UI ===\n")
-    cat("Текущая вкладка:", input$user_tabs, "\n")
-    cat("Выбранная конференция в интерфейсе:", input$selected_conference, "\n")
-    cat("========================\n")
-  })
+  # Функции для обновления статуса заявок
+  approve_application <- function(application_id) {
+    conn <- get_db_connection()
+    dbExecute(conn,
+              "UPDATE applications SET status = 'approved' WHERE application_id = ?",
+              params = list(application_id))
+    dbDisconnect(conn)
+  }
+  
+  reject_application <- function(application_id) {
+    conn <- get_db_connection()
+    dbExecute(conn,
+              "UPDATE applications SET status = 'rejected' WHERE application_id = ?",
+              params = list(application_id))
+    dbDisconnect(conn)
+  }
+  
+  # Функция для получения ID выбранных заявок
+  get_selected_application_ids <- function(selected_rows) {
+    applications <- load_pending_applications()
+    if (length(selected_rows) > 0 && nrow(applications) > 0) {
+      return(applications$application_id[selected_rows])
+    }
+    return(NULL)
+  }
+
   # RENDERUI ДЛЯ ВЫБОРА КОНФЕРЕНЦИЙ
   output$conference_selector <- renderUI({
     conferences <- conferences_data()
@@ -127,7 +130,6 @@ server <- function(input, output, session) {
   # Добавьте эту функцию после load_all_applications()
   check_conference_limit <- function(conference_id) {
     conn <- get_db_connection()
-    
     # Получаем максимальное количество участников для конференции
     conference <- dbGetQuery(conn, 
                              "SELECT max_participants FROM conferences WHERE conference_id = ?",
@@ -149,7 +151,7 @@ server <- function(input, output, session) {
       has_free_places = approved_count$count < conference$max_participants
     ))
   }
-
+  
   
   # Главный UI
   output$main_ui <- renderUI({
@@ -248,7 +250,7 @@ server <- function(input, output, session) {
                      )
             )
           )
-        ) # закрытие fluidPage
+        )
       } else {
         # ИНТЕРФЕЙС ОБЫЧНОГО ПОЛЬЗОВАТЕЛЯ
         tabsetPanel(
@@ -327,6 +329,7 @@ server <- function(input, output, session) {
                      h3("Выход из системы"),
                      p("Вы уверены, что хотите выйти?"),
                      actionButton("confirm_logout_btn", "✅ Да, выйти", class = "btn-warning"),
+
                      actionButton("cancel_logout_btn", "❌ Отмена", class = "btn-secondary")
                    )
           )
@@ -358,8 +361,6 @@ server <- function(input, output, session) {
   # ОБНОВЛЕНИЕ ВЫБОРА КОНФЕРЕНЦИЙ
   observe({
     conferences <- conferences_data()
-    cat("=== ОБНОВЛЕНИЕ SELECTINPUT ===\n")
-    cat("Конференций для выбора:", nrow(conferences), "\n")
     
     if (nrow(conferences) > 0) {
       choices <- setNames(conferences$conference_id, conferences$title)
@@ -378,7 +379,7 @@ server <- function(input, output, session) {
     if (input$participation_type == "speaker") {
       tagList(
         textInput("presentation_topic", "Тема доклада:", placeholder = "Введите тему вашего доклада"),
-        fileInput("qualification_file", "Файл с материалами доклада (опционально):",
+        fileInput("qualification_file", "Файл с подтверждением квалификации*:",
                   accept = c(".pdf", ".doc", ".docx", ".ppt", ".pptx"))
       )
     }
@@ -427,11 +428,6 @@ server <- function(input, output, session) {
   
   # Подача заявки
   observeEvent(input$submit_application_btn, {
-    cat("=== ДЕБАГ ИНФОРМАЦИЯ ===\n")
-    cat("Выбранная конференция:", input$selected_conference, "\n")
-    cat("Тип участия:", input$participation_type, "\n")
-    cat("ID пользователя:", user$user_id, "\n")
-    cat("========================\n")
     
     req(input$selected_conference, input$participation_type)
     
@@ -470,12 +466,6 @@ server <- function(input, output, session) {
         )
         
         has_free_places <- approved_count$count < conference$max_participants
-        
-        cat("=== ИНФОРМАЦИЯ О ЛИМИТЕ ===\n")
-        cat("Макс. участников:", conference$max_participants, "\n")
-        cat("Текущ. одобренных:", approved_count$count, "\n")
-        cat("Есть свободные места:", has_free_places, "\n")
-        cat("===========================\n")
         
         if (has_free_places) {
           # Есть места - автоматически одобряем
@@ -537,8 +527,82 @@ server <- function(input, output, session) {
     showNotification("📝 Функция добавления конференции в разработке", type = "message")
   })
   
-  observeEvent(input$manage_conferences_btn, {
-    showNotification("🎤 Функция управления конференциями в разработке", type = "message")
+  # Обработчик кнопки "Одобрить выбранные"
+  observeEvent(input$approve_selected_btn, {
+    selected_rows <- input$pending_applications_table_rows_selected
+    application_ids <- get_selected_application_ids(selected_rows)
+    
+    if (length(application_ids) > 0) {
+      # Одобряем каждую выбранную заявку
+      for (app_id in application_ids) {
+        approve_application(app_id)
+      }
+      
+      showNotification(paste("✅ Одобрено заявок:", length(application_ids)), type = "message")
+      
+      # ОБНОВЛЯЕМ ДАННЫЕ ПОЛЬЗОВАТЕЛЕЙ АВТОМАТИЧЕСКИ
+      # Обновляем таблицу заявок на рассмотрение
+      output$pending_applications_table <- renderDT({
+        applications <- load_pending_applications()
+        if (nrow(applications) > 0) {
+          datatable(applications, 
+                    options = list(
+                      pageLength = 10,
+                      selection = 'multiple'
+                    ),
+                    rownames = FALSE)
+        } else {
+          datatable(data.frame(Сообщение = "Нет заявок на рассмотрении"))
+        }
+      })
+      
+      # Обновляем заявки пользователей (если они залогинены)
+      if (user$logged_in && user$role == "user") {
+        user_applications(load_user_applications(user$user_id))
+      }
+      
+    } else {
+      showNotification("❌ Выберите заявки для одобрения", type = "error")
+    }
+  })
+  
+  # Обработчик кнопки "Отклонить выбранные"
+  observeEvent(input$reject_selected_btn, {
+    selected_rows <- input$pending_applications_table_rows_selected
+    application_ids <- get_selected_application_ids(selected_rows)
+    
+    if (length(application_ids) > 0) {
+      # Отклоняем каждую выбранную заявку
+      for (app_id in application_ids) {
+        reject_application(app_id)
+      }
+      
+      showNotification(paste("❌ Отклонено заявок:", length(application_ids)), type = "message")
+      
+      # ОБНОВЛЯЕМ ДАННЫЕ ПОЛЬЗОВАТЕЛЕЙ АВТОМАТИЧЕСКИ
+      # Обновляем таблицу заявок на рассмотрение
+      output$pending_applications_table <- renderDT({
+        applications <- load_pending_applications()
+        if (nrow(applications) > 0) {
+          datatable(applications, 
+                    options = list(
+                      pageLength = 10,
+                      selection = 'multiple'
+                    ),
+                    rownames = FALSE)
+        } else {
+          datatable(data.frame(Сообщение = "Нет заявок на рассмотрении"))
+        }
+      })
+      
+      # Обновляем заявки пользователей (если они залогинены)
+      if (user$logged_in && user$role == "user") {
+        user_applications(load_user_applications(user$user_id))
+      }
+      
+    } else {
+      showNotification("❌ Выберите заявки для отклонения", type = "error")
+    }
   })
   
   # Обработчик для новой кнопки выхода
@@ -588,10 +652,18 @@ server <- function(input, output, session) {
     datatable(users, options = list(pageLength = 10))
   })
   
-  output$all_applications_table <- renderDT({
-    applications <- all_applications_data()
+  output$pending_applications_table <- renderDT({
+    applications <- load_pending_applications() 
     if (nrow(applications) > 0) {
-      datatable(applications, options = list(pageLength = 10))
+      datatable(applications, 
+                options = list(
+                  pageLength = 10,
+                  selection = 'multiple'
+                ),
+                rownames = FALSE) 
+    } else {
+      # Если заявок нет, показываем сообщение
+      datatable(data.frame(Сообщение = "Нет заявок на рассмотрении"))
     }
   })
   
