@@ -21,7 +21,7 @@ ui <- fluidPage(
       }
     "))
   ),
-  titlePanel("🎤 Система подачи заявок на конференции"),
+  titlePanel("💻 Система подачи заявок на конференции"),
   uiOutput("main_ui")
 )
 
@@ -157,37 +157,98 @@ server <- function(input, output, session) {
       auth_ui(show_register())
     } else {
       if (user$role == "admin") {
-        # ИНТЕРФЕЙС АДМИНА
-        fluidRow(
-          column(12,
-                 wellPanel(
-                   h3(paste("👋 Добро пожаловать,", user$username, "! (Администратор)")),
-                   
-                   actionButton("admin_logout_btn", "🚪 Выйти", class = "btn-warning"),
-                   
-                   br(), br(),
-                   h4("👨‍💼 Панель администратора"),
-                   
-                   fluidRow(
-                     column(6,
-                            actionButton("show_users_btn", "👥 Показать пользователей", 
-                                         class = "btn-info", style = "width: 100%; margin-bottom: 10px;"),
-                            actionButton("show_all_applications_btn", "📋 Все заявки", 
-                                         class = "btn-info", style = "width: 100%;")
-                     ),
-                     column(6,
-                            actionButton("add_conference_btn", "➕ Добавить конференцию", 
-                                         class = "btn-success", style = "width: 100%; margin-bottom: 10px;"),
-                            actionButton("manage_conferences_btn", "🎤 Управление конференциями", 
-                                         class = "btn-info", style = "width: 100%;")
+        fluidPage(
+          # Кнопка выхода в правом верхнем углу
+          div(style = "position: absolute; top: 10px; right: 10px;",
+              actionButton("logout_btn", "🚪 Выйти", class = "btn-warning")
+          ),
+          
+          tabsetPanel(
+            id = "admin_tabs",
+            type = "tabs",
+            
+            tabPanel("📋 Заявки на рассмотрение",
+                     wellPanel(
+                       h3("Заявки, требующие решения"),
+                       p("Здесь будут заявки докладчиков на рассмотрении"),
+                       DTOutput("pending_applications_table"),
+                       br(),
+                       actionButton("approve_selected_btn", "✅ Одобрить выбранные", class = "btn-success"),
+                       actionButton("reject_selected_btn", "❌ Отклонить выбранные", class = "btn-danger")
                      )
-                   ),
-                   
-                   # Таблицы
-                   uiOutput("admin_tables")
-                 )
+            ),
+            
+            tabPanel("👥 Пользователи",
+                     wellPanel(
+                       h3("Управление пользователями"),
+                       DTOutput("users_table")
+                     )
+            ),
+            
+            tabPanel("📊 Отчеты",
+                     wellPanel(
+                       h3("Отчеты по заявкам"),
+                       
+                       fluidRow(
+                         column(6,
+                                wellPanel(
+                                  h4("Динамика заявок по дням"),
+                                  p("График покажет количество заявок по дням"),
+                                  plotOutput("applications_trend_plot")
+                                )
+                         ),
+                         column(6,
+                                wellPanel(
+                                  h4("Статусы заявок"),
+                                  p("Круговая диаграмма статусов заявок"),
+                                  plotOutput("applications_status_plot")
+                                )
+                         )
+                       ),
+                       
+                       fluidRow(
+                         column(6,
+                                wellPanel(
+                                  h4("Типы участников"),
+                                  p("Соотношение докладчиков и слушателей"),
+                                  plotOutput("participation_type_plot")
+                                )
+                         ),
+                         column(6,
+                                wellPanel(
+                                  h4("Конференции по популярности"),
+                                  p("Столбчатая диаграмма популярности конференций"),
+                                  plotOutput("conferences_popularity_plot")
+                                )
+                         )
+                       )
+                     )
+            ),
+            
+            tabPanel("🎤 Конференции",
+                     wellPanel(
+                       h3("Управление конференциями"),
+                       
+                       # Форма добавления конференции
+                       wellPanel(
+                         h4("➕ Добавить новую конференцию"),
+                         textInput("new_conf_title", "Название конференции:"),
+                         textAreaInput("new_conf_description", "Описание:", rows = 3),
+                         dateInput("new_conf_date", "Дата проведения:"),
+                         textInput("new_conf_location", "Место проведения:"),
+                         numericInput("new_conf_max_participants", "Макс. участников:", value = 100, min = 1),
+                         actionButton("add_conference_btn", "Добавить конференцию", class = "btn-success")
+                       ),
+                       
+                       br(),
+                       
+                       # Список конференций
+                       h4("Существующие конференции"),
+                       DTOutput("conferences_table")
+                     )
+            )
           )
-        )
+        ) # закрытие fluidPage
       } else {
         # ИНТЕРФЕЙС ОБЫЧНОГО ПОЛЬЗОВАТЕЛЯ
         tabsetPanel(
@@ -363,6 +424,7 @@ server <- function(input, output, session) {
     }
   })
   
+  
   # Подача заявки
   observeEvent(input$submit_application_btn, {
     cat("=== ДЕБАГ ИНФОРМАЦИЯ ===\n")
@@ -479,6 +541,16 @@ server <- function(input, output, session) {
     showNotification("🎤 Функция управления конференциями в разработке", type = "message")
   })
   
+  # Обработчик для новой кнопки выхода
+  observeEvent(input$logout_btn, {
+    user$logged_in <- FALSE
+    user$username <- ""
+    user$role <- ""
+    user$user_id <- NULL
+    show_users_table(FALSE)
+    show_applications_table(FALSE)
+    showNotification("👋 Вы вышли из системы", type = "message")
+  })
   # Выход
   observeEvent(input$admin_logout_btn, {
     user$logged_in <- FALSE
