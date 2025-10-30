@@ -111,12 +111,34 @@ server <- function(input, output, session) {
     }
     return(NULL)
   }
+  # Функция добавления новой конференции
+  add_new_conference <- function(title, description, date, location, max_participants) {
+    conn <- get_db_connection()
+    success <- tryCatch({
+      dbExecute(conn,
+                "INSERT INTO conferences (title, description, date, location, max_participants, status) 
+               VALUES (?, ?, ?, ?, ?, 'active')",
+                params = list(title, description, date, location, max_participants))
+      TRUE
+    }, error = function(e) {
+      FALSE
+    }, finally = {
+      dbDisconnect(conn)
+    })
+    return(success)
+  }
+  
+  # Функция загрузки всех конференций
+  load_all_conferences <- function() {
+    conn <- get_db_connection()
+    conferences <- dbGetQuery(conn, "SELECT * FROM conferences WHERE status = 'active' ORDER BY date DESC")
+    dbDisconnect(conn)
+    return(conferences)
+  }
 
   # RENDERUI ДЛЯ ВЫБОРА КОНФЕРЕНЦИЙ
   output$conference_selector <- renderUI({
     conferences <- conferences_data()
-    cat("=== RENDERUI CONFERENCE SELECTOR ===\n")
-    cat("Конференций для renderUI:", nrow(conferences), "\n")
     
     if (nrow(conferences) > 0) {
       choices <- setNames(conferences$conference_id, conferences$title)
@@ -348,13 +370,6 @@ server <- function(input, output, session) {
           br()
         )
       },
-      if (show_applications_table()) {
-        tagList(
-          h4("📋 Все заявки"),
-          DTOutput("all_applications_table"),
-          br()
-        )
-      }
     )
   })
   
@@ -522,9 +537,56 @@ server <- function(input, output, session) {
     show_users_table(FALSE)
     load_all_applications()
   })
-  
   observeEvent(input$add_conference_btn, {
-    showNotification("📝 Функция добавления конференции в разработке", type = "message")
+    req(input$new_conf_title, input$new_conf_description, input$new_conf_date, 
+        input$new_conf_location, input$new_conf_max_participants)
+    
+    # Проверяем, что все поля заполнены
+    if (input$new_conf_title == "" || input$new_conf_description == "" || 
+        input$new_conf_location == "") {
+      showNotification("❌ Заполните все поля!", type = "error")
+      return()
+    }
+    
+    # Добавляем конференцию в БД
+    success <- add_new_conference(
+      input$new_conf_title,
+      input$new_conf_description,
+      input$new_conf_date,
+      input$new_conf_location,
+      input$new_conf_max_participants
+    )
+    
+    if (success) {
+      showNotification("✅ Конференция успешно добавлена!", type = "message")
+      
+      # Очищаем форму
+      updateTextInput(session, "new_conf_title", value = "")
+      updateTextAreaInput(session, "new_conf_description", value = "")
+      updateTextInput(session, "new_conf_location", value = "")
+      updateNumericInput(session, "new_conf_max_participants", value = 100)
+      
+      # Обновляем данные конференций
+      conferences_data(load_all_conferences())
+      
+    } else {
+      showNotification("❌ Ошибка при добавлении конференции", type = "error")
+    }
+  })
+  
+  # Вывод таблицы конференций
+  output$conferences_table <- renderDT({
+    conferences <- conferences_data()
+    if (nrow(conferences) > 0) {
+      # Выбираем только нужные колонки для отображения
+      display_data <- conferences[, c("conference_id", "title", "description", "date", "location", "max_participants")]
+      datatable(display_data, 
+                options = list(pageLength = 10),
+                colnames = c("ID", "Название", "Описание", "Дата", "Место", "Макс. участников"),
+                rownames = FALSE)
+    } else {
+      datatable(data.frame(Сообщение = "Нет активных конференций"))
+    }
   })
   
   # Обработчик кнопки "Одобрить выбранные"
