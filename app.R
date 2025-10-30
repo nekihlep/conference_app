@@ -1,182 +1,256 @@
-# app.R
-library(shiny)
-library(shinyjs)
 source("R/db_functions.R")
+source("R/auth.R")
+
 ui <- fluidPage(
-  useShinyjs(),  # для показа/скрытия элементов
+  useShinyjs(),
+  tags$head(
+    tags$style(HTML("
+      .shiny-notification {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        z-index: 10000;
+      }
+    "))
+  ),
   titlePanel("🎤 Система подачи заявок на конференции"),
   uiOutput("main_ui")
 )
 
 server <- function(input, output, session) {
   
-  # Реактивное значение для хранения информации о пользователе
-  user <- reactiveValues(
-    logged_in = FALSE, 
-    username = "", 
-    role = "",
-    user_id = NULL
-  )
-  
-  # Реактивное значение для переключения между входом и регистрацией
+  user <- reactiveValues(logged_in = FALSE, username = "", role = "", user_id = NULL)
   show_register <- reactiveVal(FALSE)
+  show_users_table <- reactiveVal(FALSE)
+  show_applications_table <- reactiveVal(FALSE)
   
-  # Функция для проверки логина
-  check_login <- function(username, password) {
-    conn <- get_db_connection()
-    
-    # Ищем пользователя по username
-    user_data <- dbGetQuery(conn, 
-                            "SELECT * FROM users WHERE username = ?",
-                            params = list(username)
-    )
-    
-    dbDisconnect(conn)
-    
-    if (nrow(user_data) == 1) {
-      # ПРАВИЛЬНО проверяем пароль
-      password_correct <- sodium::password_verify(user_data$password_hash, password)
+  # Реактивные данные
+  conferences_data <- reactiveVal(data.frame())
+  user_applications <- reactiveVal(data.frame())
+  all_applications_data <- reactiveVal(data.frame())
+  
+  # Загрузка данных при входе
+  observeEvent(user$logged_in, {
+    if (user$logged_in) {
+      # Загружаем конференции
+      conn <- get_db_connection()
+      conferences <- dbGetQuery(conn, "SELECT * FROM conferences WHERE status = 'active'")
+      dbDisconnect(conn)
+      conferences_data(conferences)
       
-      if (password_correct) {
-        return(list(
-          success = TRUE, 
-          user_id = user_data$user_id,
-          username = user_data$username,
-          role = user_data$role
-        ))
+      # Загружаем заявки пользователя
+      if (user$role == "user") {
+        load_user_applications()
+      }
+      
+      # Для админа загружаем все заявки
+      if (user$role == "admin") {
+        load_all_applications()
       }
     }
-    
-    return(list(success = FALSE))
-  }
-
-  register_user <- function(username, password, email, full_name, institution) {
+  })
+  
+  # Функция загрузки заявок пользователя
+  load_user_applications <- function() {
     conn <- get_db_connection()
-    
-    # Проверяем, нет ли уже такого пользователя
-    existing_user <- dbGetQuery(conn, 
-                                "SELECT * FROM users WHERE username = ?", 
-                                params = list(username)
-    )
-    
-    if (nrow(existing_user) > 0) {
-      dbDisconnect(conn)
-      return(FALSE) # Пользователь уже существует
-    }
-
-    hashed_password <- sodium::password_store(password)
-    
-    # Сохраняем нового пользователя
-    dbExecute(conn, 
-              "INSERT INTO users (username, password_hash, email, full_name, institution, role) 
-       VALUES (?, ?, ?, ?, ?, 'user')",
-              params = list(
-                username, 
-                hashed_password,
-                email,
-                full_name,
-                institution
-              )
-    )
-    
+    applications <- dbGetQuery(conn, 
+                               "SELECT a.*, c.title as conference_title 
+       FROM applications a 
+       JOIN conferences c ON a.conference_id = c.conference_id 
+       WHERE a.user_id = ?",
+                               params = list(user$user_id))
     dbDisconnect(conn)
-    return(TRUE)
+    user_applications(applications)
   }
   
-  # Главный интерфейс
+  # Функция загрузки всех заявок для админа
+  load_all_applications <- function() {
+    conn <- get_db_connection()
+    applications <- dbGetQuery(conn,
+                               "SELECT a.application_id, u.username, c.title, 
+            a.participation_type, a.topic, a.status
+     FROM applications a
+     JOIN users u ON a.user_id = u.user_id
+     JOIN conferences c ON a.conference_id = c.conference_id")
+    dbDisconnect(conn)
+    all_applications_data(applications)
+  }
+  
+  # Главный UI
   output$main_ui <- renderUI({
     if (!user$logged_in) {
-      if (!show_register()) {
-        # ФОРМА ВХОДА
-        wellPanel(
-          style = "max-width: 400px; margin: 50px auto; padding: 20px;",
-          h3("🔐 Вход в систему", style = "text-align: center;"),
-          
-          textInput("login_username", "Имя пользователя", value = "admin"),
-          passwordInput("login_password", "Пароль", value = "admin"),
-          actionButton("login_btn", "Войти", class = "btn-primary", style = "width: 100%;"),
-          
-          br(), br(),
-          
-          # Ссылка на регистрацию
-          p(style = "text-align: center;",
-            "Вы ещё не зарегистрированы? ",
-            actionLink("go_to_register", "Зарегистрироваться", style = "cursor: pointer; color: #007bff;")
+      auth_ui(show_register())
+    } else {
+      if (user$role == "admin") {
+        # ИНТЕРФЕЙС АДМИНА
+        fluidRow(
+          column(12,
+                 wellPanel(
+                   h3(paste("👋 Добро пожаловать,", user$username, "! (Администратор)")),
+                   
+                   actionButton("admin_logout_btn", "🚪 Выйти", class = "btn-warning"),
+                   
+                   br(), br(),
+                   h4("👨‍💼 Панель администратора"),
+                   
+                   fluidRow(
+                     column(6,
+                            actionButton("show_users_btn", "👥 Показать пользователей", 
+                                         class = "btn-info", style = "width: 100%; margin-bottom: 10px;"),
+                            actionButton("show_all_applications_btn", "📋 Все заявки", 
+                                         class = "btn-info", style = "width: 100%;")
+                     ),
+                     column(6,
+                            actionButton("add_conference_btn", "➕ Добавить конференцию", 
+                                         class = "btn-success", style = "width: 100%; margin-bottom: 10px;"),
+                            actionButton("manage_conferences_btn", "🎤 Управление конференциями", 
+                                         class = "btn-info", style = "width: 100%;")
+                     )
+                   ),
+                   
+                   # Таблицы
+                   uiOutput("admin_tables")
+                 )
           )
         )
       } else {
-        # ФОРМА РЕГИСТРАЦИИ
-        wellPanel(
-          style = "max-width: 400px; margin: 50px auto; padding: 20px;",
-          h3("👤 Регистрация", style = "text-align: center;"),
+        # ИНТЕРФЕЙС ОБЫЧНОГО ПОЛЬЗОВАТЕЛЯ
+        tabsetPanel(
+          id = "user_tabs",
+          type = "tabs",
           
-          textInput("reg_username", "Имя пользователя *"),
-          passwordInput("reg_password", "Пароль *"),
-          textInput("reg_email", "Email *"),
-          textInput("reg_full_name", "ФИО *"),
-          textInput("reg_institution", "Место работы/учёбы *"),
+          tabPanel("🏠 Главная",
+                   wellPanel(
+                     h3(paste("👋 Добро пожаловать,", user$username, "!")),
+                     
+                     fluidRow(
+                       column(6,
+                              wellPanel(
+                                h4("📊 Статистика заявок"),
+                                plotOutput("applications_pie")
+                              )
+                       ),
+                       column(6,
+                              wellPanel(
+                                h4("📈 Информация"),
+                                p(strong("Активных конференций:"), textOutput("active_conferences", inline = TRUE)),
+                                p(strong("Ваших заявок:"), textOutput("user_applications_count", inline = TRUE)),
+                                p(strong("Ближайшая конференция:"), textOutput("nearest_conference", inline = TRUE))
+                              )
+                       )
+                     )
+                   )
+          ),
           
-          actionButton("register_btn", "Зарегистрироваться", class = "btn-success", style = "width: 100%;"),
+          tabPanel("🎤 Конференции",
+                   wellPanel(
+                     h3("Доступные конференции"),
+                     
+                     # Список конференций
+                     uiOutput("conferences_list"),
+                     
+                     br(),
+                     
+                     # Форма подачи заявки
+                     wellPanel(
+                       h4("📝 Подать заявку на участие"),
+                       
+                       selectInput("selected_conference", "Выберите конференцию:", 
+                                   choices = c("Выберите конференцию..." = "")),
+                       
+                       radioButtons("participation_type", "Тип участия:",
+                                    choices = c("👂 Слушатель" = "listener", 
+                                                "🎤 Докладчик" = "speaker"),
+                                    selected = "listener"),
+                       
+                       uiOutput("speaker_fields"),
+                       
+                       actionButton("submit_application_btn", "📤 Подать заявку", 
+                                    class = "btn-success")
+                     )
+                   )
+          ),
           
-          br(), br(),
+          tabPanel("📝 Мои заявки",
+                   wellPanel(
+                     h3("Мои заявки на конференции"),
+                     
+                     DTOutput("my_applications_table"),
+                     
+                     br(),
+                     
+                     fluidRow(
+                       column(4, valueBoxOutput("pending_apps", width = 12)),
+                       column(4, valueBoxOutput("approved_apps", width = 12)),
+                       column(4, valueBoxOutput("total_apps", width = 12))
+                     )
+                   )
+          ),
           
-          # Ссылка на вход
-          p(style = "text-align: center;",
-            "Вы уже зарегистрированы? ",
-            actionLink("go_to_login", "Войти", style = "cursor: pointer; color: #007bff;")
+          tabPanel("🚪 Выйти",
+                   wellPanel(
+                     h3("Выход из системы"),
+                     p("Вы уверены, что хотите выйти?"),
+                     actionButton("confirm_logout_btn", "✅ Да, выйти", class = "btn-warning"),
+                     actionButton("cancel_logout_btn", "❌ Отмена", class = "btn-secondary")
+                   )
           )
         )
       }
-    } else {
-      # ИНТЕРФЕЙС ПОСЛЕ ВХОДА
-      fluidRow(
-        column(12,
-               wellPanel(
-                 h3(paste("👋 Добро пожаловать,", user$username, "!")),
-                 p(strong("Роль:"), user$role),
-                 p(strong("ID пользователя:"), user$user_id),
-                 
-                 br(),
-                 
-                 # Кнопка выхода
-                 actionButton("logout_btn", "🚪 Выйти", class = "btn-warning"),
-                 
-                 # Для админов - просмотр пользователей
-                 if (user$role == "admin") {
-                   tagList(
-                     br(), br(),
-                     h4("👨‍💼 Панель администратора"),
-                     actionButton("show_users_btn", "Показать всех пользователей"),
-                     tableOutput("users_table")
-                   )
-                 }
-               )
+    }
+  })
+  
+  # UI для админских таблиц
+  output$admin_tables <- renderUI({
+    tagList(
+      if (show_users_table()) {
+        tagList(
+          h4("📊 Таблица пользователей"),
+          DTOutput("users_table"),
+          br()
         )
+      },
+      if (show_applications_table()) {
+        tagList(
+          h4("📋 Все заявки"),
+          DTOutput("all_applications_table"),
+          br()
+        )
+      }
+    )
+  })
+  
+  # ОБНОВЛЕНИЕ ВЫБОРА КОНФЕРЕНЦИЙ
+  observe({
+    conferences <- conferences_data()
+    if (nrow(conferences) > 0) {
+      choices <- setNames(conferences$conference_id, conferences$title)
+      updateSelectInput(session, "selected_conference", 
+                        choices = c("Выберите конференцию..." = "", choices))
+    } else {
+      updateSelectInput(session, "selected_conference", 
+                        choices = c("Нет доступных конференций" = ""))
+    }
+  })
+  
+  # ПОЛЯ ДЛЯ ДОКЛАДЧИКОВ
+  output$speaker_fields <- renderUI({
+    if (input$participation_type == "speaker") {
+      tagList(
+        textInput("presentation_topic", "Тема доклада:", placeholder = "Введите тему вашего доклада"),
+        fileInput("qualification_file", "Файл с материалами доклада (опционально):",
+                  accept = c(".pdf", ".doc", ".docx", ".ppt", ".pptx"))
       )
     }
   })
   
-  # Переход к регистрации
-  observeEvent(input$go_to_register, {
-    show_register(TRUE)
-  })
+  # ОБРАБОТЧИКИ СОБЫТИЙ
   
-  # Переход ко входу
-  observeEvent(input$go_to_login, {
-    show_register(FALSE)
-  })
-  
-  # Обработчик кнопки ВХОДА
+  # Аутентификация
   observeEvent(input$login_btn, {
     req(input$login_username, input$login_password)
     
-    # Показываем загрузку
-    showNotification("Проверяем данные...", duration = NULL, id = "loading")
-    
     result <- check_login(input$login_username, input$login_password)
-    
-    # Убираем уведомление о загрузке
-    removeNotification("loading")
     
     if (result$success) {
       user$logged_in <- TRUE
@@ -184,28 +258,15 @@ server <- function(input, output, session) {
       user$role <- result$role
       user$user_id <- result$user_id
       
-      showNotification(paste("✅ Успешный вход! Добро пожаловать,", user$username), type = "message")
-      
-      # Очищаем поля
-      updateTextInput(session, "login_username", value = "")
-      updateTextInput(session, "login_password", value = "")
-      
+      showNotification(paste("✅ Успешный вход,", user$username, "!"), type = "message")
     } else {
-      showNotification("❌ Неверное имя пользователя или пароль!", type = "error")
+      showNotification("❌ Неверный логин или пароль!", type = "error")
     }
   })
   
-  # Обработчик кнопки РЕГИСТРАЦИИ
   observeEvent(input$register_btn, {
     req(input$reg_username, input$reg_password, input$reg_email, 
         input$reg_full_name, input$reg_institution)
-    
-    # Проверяем что все поля заполнены
-    if (any(c(input$reg_username, input$reg_password, input$reg_email, 
-              input$reg_full_name, input$reg_institution) == "")) {
-      showNotification("❌ Заполните все обязательные поля!", type = "error")
-      return()
-    }
     
     success <- register_user(
       input$reg_username,
@@ -216,25 +277,102 @@ server <- function(input, output, session) {
     )
     
     if (success) {
-      showNotification("✅ Пользователь успешно зарегистрирован! Теперь вы можете войти.", type = "message")
-      
-      # Переключаем на форму входа
+      showNotification("✅ Регистрация успешна! Теперь войдите в систему.", type = "message")
       show_register(FALSE)
-      
-      # Очищаем поля регистрации
-      updateTextInput(session, "reg_username", value = "")
-      updateTextInput(session, "reg_password", value = "")
-      updateTextInput(session, "reg_email", value = "")
-      updateTextInput(session, "reg_full_name", value = "")
-      updateTextInput(session, "reg_institution", value = "")
-      
     } else {
       showNotification("❌ Пользователь с таким именем уже существует!", type = "error")
     }
   })
   
-  # Обработчик кнопки ВЫХОДА
-  observeEvent(input$logout_btn, {
+  # Подача заявки
+  observeEvent(input$submit_application_btn, {
+    req(input$selected_conference, input$participation_type)
+    
+    if (input$selected_conference == "") {
+      showNotification("❌ Выберите конференцию!", type = "error")
+      return()
+    }
+    
+    conn <- get_db_connection()
+    
+    # Проверяем существующую заявку
+    existing_application <- dbGetQuery(conn,
+                                       "SELECT * FROM applications WHERE user_id = ? AND conference_id = ?",
+                                       params = list(user$user_id, input$selected_conference)
+    )
+    
+    if (nrow(existing_application) > 0) {
+      showNotification("❌ Вы уже подавали заявку на эту конференцию!", type = "error")
+      dbDisconnect(conn)
+      return()
+    }
+    
+    # Сохраняем заявку
+    tryCatch({
+      if (input$participation_type == "speaker") {
+        dbExecute(conn,
+                  "INSERT INTO applications (user_id, conference_id, participation_type, topic) 
+           VALUES (?, ?, ?, ?)",
+                  params = list(user$user_id, input$selected_conference, "speaker", 
+                                ifelse(is.null(input$presentation_topic) || input$presentation_topic == "", 
+                                       "Тема не указана", input$presentation_topic))
+        )
+      } else {
+        dbExecute(conn,
+                  "INSERT INTO applications (user_id, conference_id, participation_type) 
+           VALUES (?, ?, ?)",
+                  params = list(user$user_id, input$selected_conference, "listener")
+        )
+      }
+      
+      dbDisconnect(conn)
+      showNotification("✅ Заявка успешно подана!", type = "message")
+      
+      # Обновляем данные
+      load_user_applications()
+      
+      # Очищаем форму
+      updateSelectInput(session, "selected_conference", selected = "")
+      updateRadioButtons(session, "participation_type", selected = "listener")
+      
+    }, error = function(e) {
+      dbDisconnect(conn)
+      showNotification(paste("❌ Ошибка при подаче заявки:", e$message), type = "error")
+    })
+  })
+  
+  # Админские кнопки
+  observeEvent(input$show_users_btn, {
+    show_users_table(TRUE)
+    show_applications_table(FALSE)
+  })
+  
+  observeEvent(input$show_all_applications_btn, {
+    show_applications_table(TRUE)
+    show_users_table(FALSE)
+    load_all_applications()
+  })
+  
+  observeEvent(input$add_conference_btn, {
+    showNotification("📝 Функция добавления конференции в разработке", type = "message")
+  })
+  
+  observeEvent(input$manage_conferences_btn, {
+    showNotification("🎤 Функция управления конференциями в разработке", type = "message")
+  })
+  
+  # Выход
+  observeEvent(input$admin_logout_btn, {
+    user$logged_in <- FALSE
+    user$username <- ""
+    user$role <- ""
+    user$user_id <- NULL
+    show_users_table(FALSE)
+    show_applications_table(FALSE)
+    showNotification("👋 Вы вышли из системы", type = "message")
+  })
+  
+  observeEvent(input$confirm_logout_btn, {
     user$logged_in <- FALSE
     user$username <- ""
     user$role <- ""
@@ -242,17 +380,112 @@ server <- function(input, output, session) {
     showNotification("👋 Вы вышли из системы", type = "message")
   })
   
-  # Показ всех пользователей (для админа)
-  observeEvent(input$show_users_btn, {
+  observeEvent(input$cancel_logout_btn, {
+    showNotification("✅ Выход отменён", type = "message")
+  })
+  
+  # Переключение форм
+  observeEvent(input$go_to_register, { show_register(TRUE) })
+  observeEvent(input$go_to_login, { show_register(FALSE) })
+  
+  # ВЫХОДНЫЕ ДАННЫЕ
+  
+  # Для админа
+  output$users_table <- renderDT({
     conn <- get_db_connection()
-    users_data <- dbGetQuery(conn, "SELECT user_id, username, email, full_name, role FROM users")
+    users <- dbGetQuery(conn, "SELECT user_id, username, email, full_name, institution, role, created_at FROM users")
     dbDisconnect(conn)
-    
-    output$users_table <- renderTable({
-      users_data
-    })
+    datatable(users, options = list(pageLength = 10))
+  })
+  
+  output$all_applications_table <- renderDT({
+    applications <- all_applications_data()
+    if (nrow(applications) > 0) {
+      datatable(applications, options = list(pageLength = 10))
+    }
+  })
+  
+  # Для пользователя
+  output$active_conferences <- renderText({ 
+    nrow(conferences_data())
+  })
+  
+  output$user_applications_count <- renderText({
+    nrow(user_applications())
+  })
+  
+  output$nearest_conference <- renderText({
+    conferences <- conferences_data()
+    if (nrow(conferences) > 0) {
+      min(conferences$date)
+    } else {
+      "Нет активных конференций"
+    }
+  })
+  
+  output$applications_pie <- renderPlot({
+    apps <- user_applications()
+    if (nrow(apps) > 0) {
+      status_counts <- table(apps$status)
+      pie(status_counts, 
+          labels = paste(names(status_counts), "\n", status_counts),
+          col = c("#ffc107", "#28a745", "#dc3545"),
+          main = "Статус ваших заявок")
+    } else {
+      plot(0, 0, type = "n", xlab = "", ylab = "", axes = FALSE)
+      text(0, 0, "Нет данных о заявках", cex = 1.5)
+    }
+  })
+  
+  output$my_applications_table <- renderDT({
+    apps <- user_applications()
+    if (nrow(apps) > 0) {
+      display_data <- apps[, c("conference_title", "participation_type", "topic", "status")]
+      display_data$participation_type <- ifelse(display_data$participation_type == "speaker", "Докладчик", "Слушатель")
+      display_data$status <- ifelse(display_data$status == "pending", "На рассмотрении",
+                                    ifelse(display_data$status == "approved", "Одобрено", "Отклонено"))
+      datatable(display_data, 
+                colnames = c("Конференция", "Тип участия", "Тема доклада", "Статус"),
+                options = list(pageLength = 5))
+    }
+  })
+  
+  output$conferences_list <- renderUI({
+    conferences <- conferences_data()
+    if (nrow(conferences) > 0) {
+      tagList(
+        lapply(1:nrow(conferences), function(i) {
+          wellPanel(
+            h4(conferences$title[i]),
+            p(strong("Описание:"), conferences$description[i]),
+            p(strong("Дата:"), conferences$date[i]),
+            p(strong("Место:"), conferences$location[i]),
+            p(strong("Макс. участников:"), conferences$max_participants[i])
+          )
+        })
+      )
+    } else {
+      p("Нет активных конференций")
+    }
+  })
+  
+  output$pending_apps <- renderValueBox({
+    apps <- user_applications()
+    count <- if (nrow(apps) > 0) sum(apps$status == "pending") else 0
+    valueBox(count, "На рассмотрении", icon = icon("clock"), color = "yellow")
+  })
+  
+  output$approved_apps <- renderValueBox({
+    apps <- user_applications()
+    count <- if (nrow(apps) > 0) sum(apps$status == "approved") else 0
+    valueBox(count, "Одобрено", icon = icon("check"), color = "green")
+  })
+  
+  output$total_apps <- renderValueBox({
+    apps <- user_applications()
+    count <- if (nrow(apps) > 0) nrow(apps) else 0
+    valueBox(count, "Всего заявок", icon = icon("list"), color = "blue")
   })
 }
 
-# Запуск приложения
 shinyApp(ui, server)
