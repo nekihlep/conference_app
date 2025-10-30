@@ -1,3 +1,11 @@
+# app.R
+library(shiny)
+library(shinyjs)
+library(DBI)
+library(RSQLite)
+library(sodium)
+library(DT)
+
 source("R/db_functions.R")
 source("R/auth.R")
 
@@ -29,13 +37,31 @@ server <- function(input, output, session) {
   user_applications <- reactiveVal(data.frame())
   all_applications_data <- reactiveVal(data.frame())
   
+  # Отладочный вывод для конференций
+  observe({
+    conferences <- conferences_data()
+    cat("=== ПРОВЕРКА КОНФЕРЕНЦИЙ ===\n")
+    cat("Количество конференций в conferences_data():", nrow(conferences), "\n")
+    if (nrow(conferences) > 0) {
+      cat("ID конференций:", paste(conferences$conference_id, collapse = ", "), "\n")
+      cat("Названия:", paste(conferences$title, collapse = ", "), "\n")
+    } else {
+      cat("КОНФЕРЕНЦИИ НЕ ЗАГРУЖЕНЫ!\n")
+    }
+    cat("===========================\n")
+  })
+  
   # Загрузка данных при входе
   observeEvent(user$logged_in, {
     if (user$logged_in) {
+      cat("=== ЗАГРУЗКА ДАННЫХ ПРИ ВХОДЕ ===\n")
+      
       # Загружаем конференции
       conn <- get_db_connection()
       conferences <- dbGetQuery(conn, "SELECT * FROM conferences WHERE status = 'active'")
       dbDisconnect(conn)
+      
+      cat("Загружено конференций из БД:", nrow(conferences), "\n")
       conferences_data(conferences)
       
       # Загружаем заявки пользователя
@@ -73,10 +99,57 @@ server <- function(input, output, session) {
      FROM applications a
      JOIN users u ON a.user_id = u.user_id
      JOIN conferences c ON a.conference_id = c.conference_id
-     ORDER BY a.applied_at DESC")    # ← Сначала новые заявки!
+     ORDER BY a.applied_at DESC")
     dbDisconnect(conn)
     all_applications_data(applications)
   }
+  observe({
+    cat("=== ПРОВЕРКА UI ===\n")
+    cat("Текущая вкладка:", input$user_tabs, "\n")
+    cat("Выбранная конференция в интерфейсе:", input$selected_conference, "\n")
+    cat("========================\n")
+  })
+  # RENDERUI ДЛЯ ВЫБОРА КОНФЕРЕНЦИЙ
+  output$conference_selector <- renderUI({
+    conferences <- conferences_data()
+    cat("=== RENDERUI CONFERENCE SELECTOR ===\n")
+    cat("Конференций для renderUI:", nrow(conferences), "\n")
+    
+    if (nrow(conferences) > 0) {
+      choices <- setNames(conferences$conference_id, conferences$title)
+      selectInput("selected_conference", "Выберите конференцию:", 
+                  choices = c("Выберите конференцию..." = "", choices))
+    } else {
+      selectInput("selected_conference", "Выберите конференцию:", 
+                  choices = c("Нет доступных конференций" = ""))
+    }
+  })
+  # Добавьте эту функцию после load_all_applications()
+  check_conference_limit <- function(conference_id) {
+    conn <- get_db_connection()
+    
+    # Получаем максимальное количество участников для конференции
+    conference <- dbGetQuery(conn, 
+                             "SELECT max_participants FROM conferences WHERE conference_id = ?",
+                             params = list(conference_id)
+    )
+    
+    # Считаем сколько уже одобренных заявок (слушателей)
+    approved_count <- dbGetQuery(conn,
+                                 "SELECT COUNT(*) as count FROM applications 
+     WHERE conference_id = ? AND status = 'approved' AND participation_type = 'listener'",
+                                 params = list(conference_id)
+    )
+    
+    dbDisconnect(conn)
+    
+    return(list(
+      max_participants = conference$max_participants,
+      current_approved = approved_count$count,
+      has_free_places = approved_count$count < conference$max_participants
+    ))
+  }
+
   
   # Главный UI
   output$main_ui <- renderUI({
@@ -157,8 +230,7 @@ server <- function(input, output, session) {
                      wellPanel(
                        h4("📝 Подать заявку на участие"),
                        
-                       selectInput("selected_conference", "Выберите конференцию:", 
-                                   choices = c("Выберите конференцию..." = "")),
+                       uiOutput("conference_selector"),
                        
                        radioButtons("participation_type", "Тип участия:",
                                     choices = c("👂 Слушатель" = "listener", 
@@ -225,8 +297,13 @@ server <- function(input, output, session) {
   # ОБНОВЛЕНИЕ ВЫБОРА КОНФЕРЕНЦИЙ
   observe({
     conferences <- conferences_data()
+    cat("=== ОБНОВЛЕНИЕ SELECTINPUT ===\n")
+    cat("Конференций для выбора:", nrow(conferences), "\n")
+    
     if (nrow(conferences) > 0) {
       choices <- setNames(conferences$conference_id, conferences$title)
+      cat("Choices:", paste(names(choices), collapse = ", "), "\n")
+      
       updateSelectInput(session, "selected_conference", 
                         choices = c("Выберите конференцию..." = "", choices))
     } else {
@@ -288,6 +365,12 @@ server <- function(input, output, session) {
   
   # Подача заявки
   observeEvent(input$submit_application_btn, {
+    cat("=== ДЕБАГ ИНФОРМАЦИЯ ===\n")
+    cat("Выбранная конференция:", input$selected_conference, "\n")
+    cat("Тип участия:", input$participation_type, "\n")
+    cat("ID пользователя:", user$user_id, "\n")
+    cat("========================\n")
+    
     req(input$selected_conference, input$participation_type)
     
     if (input$selected_conference == "") {
@@ -308,27 +391,61 @@ server <- function(input, output, session) {
       dbDisconnect(conn)
       return()
     }
-    
     # Сохраняем заявку
     tryCatch({
-      if (input$participation_type == "speaker") {
+      # Для СЛУШАТЕЛЯ - автоматическое одобрение если есть места
+      if (input$participation_type == "listener") {
+        # Проверяем есть ли свободные места используя то же соединение
+        conference <- dbGetQuery(conn,
+                                 "SELECT max_participants FROM conferences WHERE conference_id = ?",
+                                 params = list(input$selected_conference)
+        )
+        
+        approved_count <- dbGetQuery(conn,
+                                     "SELECT COUNT(*) as count FROM applications 
+                                 WHERE conference_id = ? AND status = 'approved' AND participation_type = 'listener'",
+                                     params = list(input$selected_conference)
+        )
+        
+        has_free_places <- approved_count$count < conference$max_participants
+        
+        cat("=== ИНФОРМАЦИЯ О ЛИМИТЕ ===\n")
+        cat("Макс. участников:", conference$max_participants, "\n")
+        cat("Текущ. одобренных:", approved_count$count, "\n")
+        cat("Есть свободные места:", has_free_places, "\n")
+        cat("===========================\n")
+        
+        if (has_free_places) {
+          # Есть места - автоматически одобряем
+          dbExecute(conn,
+                    "INSERT INTO applications (user_id, conference_id, participation_type, status) 
+                 VALUES (?, ?, ?, 'approved')",
+                    params = list(user$user_id, input$selected_conference, "listener")
+          )
+          showNotification("✅ Заявка одобрена! Свободные места есть.", type = "message")
+        } else {
+          # Мест нет - отклоняем
+          dbExecute(conn,
+                    "INSERT INTO applications (user_id, conference_id, participation_type, status) 
+                 VALUES (?, ?, ?, 'rejected')",
+                    params = list(user$user_id, input$selected_conference, "listener")
+          )
+          showNotification("❌ Заявка отклонена. Все места заняты.", type = "error")
+        }
+        
+      } else {
+        # Для ДОКЛАДЧИКА - всегда на рассмотрение
         dbExecute(conn,
-                  "INSERT INTO applications (user_id, conference_id, participation_type, topic) 
-           VALUES (?, ?, ?, ?)",
+                  "INSERT INTO applications (user_id, conference_id, participation_type, topic, status) 
+               VALUES (?, ?, ?, ?, 'pending')",
                   params = list(user$user_id, input$selected_conference, "speaker", 
                                 ifelse(is.null(input$presentation_topic) || input$presentation_topic == "", 
                                        "Тема не указана", input$presentation_topic))
         )
-      } else {
-        dbExecute(conn,
-                  "INSERT INTO applications (user_id, conference_id, participation_type) 
-           VALUES (?, ?, ?)",
-                  params = list(user$user_id, input$selected_conference, "listener")
-        )
+        showNotification("📝 Заявка отправлена на рассмотрение администратору", type = "message")
       }
       
       dbDisconnect(conn)
-      showNotification("✅ Заявка успешно подана!", type = "message")
       
       # Обновляем данные
       load_user_applications()
@@ -342,7 +459,6 @@ server <- function(input, output, session) {
       showNotification(paste("❌ Ошибка при подаче заявки:", e$message), type = "error")
     })
   })
-  
   # Админские кнопки
   observeEvent(input$show_users_btn, {
     show_users_table(TRUE)
@@ -457,12 +573,19 @@ server <- function(input, output, session) {
     if (nrow(conferences) > 0) {
       tagList(
         lapply(1:nrow(conferences), function(i) {
+          # Проверяем свободные места для каждой конференции
+          limit_info <- check_conference_limit(conferences$conference_id[i])
+          free_places <- limit_info$max_participants - limit_info$current_approved
+          
           wellPanel(
             h4(conferences$title[i]),
             p(strong("Описание:"), conferences$description[i]),
             p(strong("Дата:"), conferences$date[i]),
             p(strong("Место:"), conferences$location[i]),
-            p(strong("Макс. участников:"), conferences$max_participants[i])
+            p(strong("Мест свободно:"), free_places, "из", limit_info$max_participants),
+            if (free_places == 0) {
+              p(strong("⚠️ Все места заняты"), style = "color: red;")
+            }
           )
         })
       )
