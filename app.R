@@ -876,7 +876,21 @@ server <- function(input, output, session) {
       text(0, 0, "Нет данных")
     }
   })
-#Статусы заявок для пользователей 
+  # Круговая диаграмма для пользователя (главная страница)
+  output$applications_pie <- renderPlot({
+    apps <- user_applications()
+    if (nrow(apps) > 0) {
+      status_counts <- table(apps$status)
+      pie(status_counts,
+          labels = paste(c("На рассмотрении", "Одобрено", "Отклонено"), "\n", status_counts),
+          col = c("#ffc107", "#28a745", "#dc3545"),
+          main = "Статус ваших заявок")
+    } else {
+      plot(0, 0, type = "n", xlab = "", ylab = "", axes = FALSE)
+      text(0, 0, "Нет данных о заявках", cex = 1.5)
+    }
+  })
+#Статусы заявок  
   output$applications_status_plot <- renderPlot({
     conn <- get_db_connection()
     
