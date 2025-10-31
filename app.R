@@ -304,14 +304,6 @@ server <- function(input, output, session) {
           
           tabPanel("🎤 Конференции",
                    wellPanel(
-                     h3("Доступные конференции"),
-                     
-                     # Список конференций
-                     uiOutput("conferences_list"),
-                     
-                     br(),
-                     
-                     # Форма подачи заявки
                      wellPanel(
                        h4("📝 Подать заявку на участие"),
                        
@@ -326,8 +318,14 @@ server <- function(input, output, session) {
                        
                        actionButton("submit_application_btn", "📤 Подать заявку", 
                                     class = "btn-success")
-                     )
+                     ),
+                     
+                     br(),
+
+                     h4("📋 Подробный список конференций"),
+                     uiOutput("conferences_list")
                    )
+                   
           ),
           
           tabPanel("📝 Мои заявки",
