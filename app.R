@@ -36,28 +36,6 @@ server <- function(input, output, session) {
   user_applications <- reactiveVal(data.frame())
   all_applications_data <- reactiveVal(data.frame())
   
-  
-  # Загрузка данных при входе
-  observeEvent(user$logged_in, {
-    if (user$logged_in) {
-      # Загружаем конференции
-      conn <- get_db_connection()
-      conferences <- dbGetQuery(conn, "SELECT * FROM conferences WHERE status = 'active'")
-      dbDisconnect(conn)
-      conferences_data(conferences)
-      
-      # Загружаем заявки пользователя
-      if (user$role == "user") {
-        load_user_applications()
-      }
-      
-      # Для админа загружаем все заявки
-      if (user$role == "admin") {
-        load_all_applications()
-      }
-    }
-  })
-  
   # Функция загрузки заявок пользователя
   load_user_applications <- function() {
     conn <- get_db_connection()
@@ -112,15 +90,26 @@ server <- function(input, output, session) {
     return(NULL)
   }
   # Функция добавления новой конференции
+  # Функция добавления новой конференции
   add_new_conference <- function(title, description, date, location, max_participants) {
     conn <- get_db_connection()
     success <- tryCatch({
+      # Преобразуем дату в правильный формат
+      if (is.numeric(date)) {
+        # Если дата пришла как число (Excel формат)
+        date <- as.Date(as.numeric(date), origin = "1899-12-30")
+      } else {
+        # Если дата в строковом формате
+        date <- as.Date(date)
+      }
+      
       dbExecute(conn,
                 "INSERT INTO conferences (title, description, date, location, max_participants, status) 
                VALUES (?, ?, ?, ?, ?, 'active')",
-                params = list(title, description, date, location, max_participants))
+                params = list(title, description, as.character(date), location, max_participants))
       TRUE
     }, error = function(e) {
+      cat("Ошибка при добавлении конференции:", e$message, "\n")
       FALSE
     }, finally = {
       dbDisconnect(conn)
@@ -218,22 +207,23 @@ server <- function(input, output, session) {
                          ),
                          column(6, 
                                 style = "text-align: left; margin-top: 10px;",
-                                downloadButton("download_report", " Скачать отчет", 
-                                               class = "btn-primary")
+                                actionButton("download_report_btn", "📥 Скачать отчет", 
+                                             class = "btn-primary")
                          )
+                      
                        ),
                        
                        fluidRow(
                          column(6,
                                 wellPanel(
-                                  h4("Динамика заявок по дням"),
+                                  h4(HTML("<strong><em>Динамика заявок по дням</em></strong>")),
                                   p("График покажет количество заявок по дням"),
                                   plotOutput("applications_trend_plot")
                                 )
                          ),
                          column(6,
                                 wellPanel(
-                                  h4("Статусы заявок"),
+                                  h4(HTML("<strong><em>Статусы заявок</em></strong>")),
                                   p("Круговая диаграмма статусов заявок"),
                                   plotOutput("applications_status_plot")
                                 )
@@ -243,15 +233,15 @@ server <- function(input, output, session) {
                        fluidRow(
                          column(6,
                                 wellPanel(
-                                  h4("Типы участников"),
+                                  h4(HTML("<strong><em>Типы участников</em></strong>")),
                                   p("Соотношение докладчиков и слушателей"),
                                   plotOutput("participation_type_plot")
                                 )
                          ),
                          column(6,
                                 wellPanel(
-                                  h4("Конференции по популярности"),
-                                  p("Столбчатая диаграмма популярности конференций"),
+                                  h4(HTML("<strong><em>Конференции по популярности</em></strong>")),
+                                  p("Диаграмма рассеивания показывает заполняемость конференций"),
                                   plotOutput("conferences_popularity_plot")
                                 )
                          )
@@ -411,6 +401,27 @@ server <- function(input, output, session) {
   
   # ОБРАБОТЧИКИ СОБЫТИЙ
   
+  
+  # Загрузка данных при входе
+  observeEvent(user$logged_in, {
+    if (user$logged_in) {
+      # Загружаем конференции
+      conn <- get_db_connection()
+      conferences <- dbGetQuery(conn, "SELECT * FROM conferences WHERE status = 'active'")
+      dbDisconnect(conn)
+      conferences_data(conferences)
+      
+      # Загружаем заявки пользователя
+      if (user$role == "user") {
+        load_user_applications()
+      }
+      
+      # Для админа загружаем все заявки
+      if (user$role == "admin") {
+        load_all_applications()
+      }
+    }
+  })
   # Аутентификация
   observeEvent(input$login_btn, {
     req(input$login_username, input$login_password)
@@ -587,7 +598,15 @@ server <- function(input, output, session) {
   output$conferences_table <- renderDT({
     conferences <- conferences_data()
     if (nrow(conferences) > 0) {
-      # Выбираем только нужные колонки для отображения
+      # Исправляем формат дат
+      conferences$date <- sapply(conferences$date, function(d) {
+        if (is.numeric(d)) {
+          format(as.Date(as.numeric(d), origin = "1899-12-30"), "%Y-%m-%d")
+        } else {
+          as.character(d)
+        }
+      })
+      
       display_data <- conferences[, c("conference_id", "title", "description", "date", "location", "max_participants")]
       datatable(display_data, 
                 options = list(pageLength = 10),
@@ -650,7 +669,6 @@ server <- function(input, output, session) {
       
       showNotification(paste("❌ Отклонено заявок:", length(application_ids)), type = "message")
       
-      # ОБНОВЛЯЕМ ДАННЫЕ ПОЛЬЗОВАТЕЛЕЙ АВТОМАТИЧЕСКИ
       # Обновляем таблицу заявок на рассмотрение
       output$pending_applications_table <- renderDT({
         applications <- load_pending_applications()
@@ -675,7 +693,7 @@ server <- function(input, output, session) {
       showNotification("❌ Выберите заявки для отклонения", type = "error")
     }
   })
-  # В app.R добавь:
+
   observeEvent(input$admin_tabs, {
     if (input$admin_tabs == "📋 Заявки на рассмотрение" && user$role == "admin") {
       # Принудительно обновляем таблицу при открытии вкладки
@@ -814,27 +832,54 @@ server <- function(input, output, session) {
       p("Нет активных конференций")
     }
   })
+  # отчет
+  observeEvent(input$download_report_btn, {
+    showNotification("📋 Функция скачивания отчета находится в разработке", 
+                     type = "message", duration = 5)
+  })
   # ГРАФИКИ
-#Статусы заявок для пользователей 
-  
-  output$applications_pie <- renderPlot({
-    apps <- user_applications()
-    if (nrow(apps) > 0) {
-      status_counts <- table(apps$status)
-      pie(status_counts, 
-        labels = c("На рассмотрении", "Одобрено", "Отклонено"),
-          col = c("#ffc107", "#28a745", "#dc3545"),
-          main = "Статус ваших заявок")
+#График покажет количество заявок по дням
+  output$applications_trend_plot <- renderPlot({
+    conn <- get_db_connection()
+    
+    trend_data <- dbGetQuery(conn, "
+    SELECT 
+      DATE(created_at) as date,
+      COUNT(*) as daily_count
+    FROM applications 
+    WHERE created_at IS NOT NULL
+    GROUP BY DATE(created_at)
+    ORDER BY date
+  ")
+    
+    dbDisconnect(conn)
+    
+    if (nrow(trend_data) > 0 && sum(trend_data$daily_count) > 0) {
+      trend_data$date <- as.Date(trend_data$date)
+
+      plot(trend_data$date, trend_data$daily_count, 
+           type = "o",  # линия с точками
+           lwd = 2,
+           col = "#007bff",
+           pch = 19,
+           ylim = c(0, 100),
+           xlab = "Дата",
+           ylab = "Количество заявок")
+      
+      grid()
+      text(trend_data$date, trend_data$daily_count,
+           labels = trend_data$daily_count,
+           pos = 3, cex = 0.9, col = "darkblue")
+      
     } else {
-      plot(0, 0, type = "n", xlab = "", ylab = "", axes = FALSE)
-      text(0, 0, "Нет данных о заявках", cex = 1.5)
+      plot(0, 0, type = "n", main = "Динамика заявок по дням")
+      text(0, 0, "Нет данных")
     }
   })
-#Статусы заявок отчеты
+#Статусы заявок для пользователей 
   output$applications_status_plot <- renderPlot({
     conn <- get_db_connection()
     
-    # Получаем данные по статусам заявок
     status_data <- dbGetQuery(conn, "
     SELECT status, COUNT(*) as count 
     FROM applications 
@@ -844,21 +889,19 @@ server <- function(input, output, session) {
     dbDisconnect(conn)
     
     if (nrow(status_data) > 0) {
-      # Русские названия статусов
       status_data$status_ru <- factor(status_data$status,
                                       levels = c("pending", "approved", "rejected"),
                                       labels = c("На рассмотрении", "Одобрено", "Отклонено"))
       total <- sum(status_data$count)
       status_data$percent <- round(status_data$count / total * 100, 1)
       
-      # Цвета
       colors <- c("На рассмотрении" = "#ffc107", "Одобрено" = "#28a745", "Отклонено" = "#dc3545")
       
-      # Круговая диаграмма с процентами на секторах
       ggplot(status_data, aes(x = "", y = count, fill = status_ru)) +
         geom_bar(stat = "identity", width = 1) +
         coord_polar("y", start = 0) +
-        geom_text(aes(label = paste0(percent, "%")), 
+        # Показываем проценты только если сегмент больше 5%
+        geom_text(aes(label = ifelse(percent > 5, paste0(percent, "%"), "")), 
                   position = position_stack(vjust = 0.5),
                   size = 6, 
                   color = "white",
@@ -873,6 +916,148 @@ server <- function(input, output, session) {
       ggplot() +
         annotate("text", x = 1, y = 1, label = "Нет данных о заявках", size = 6) +
         theme_void()
+    }
+  })
+ # Типы участников 
+  output$participation_type_plot <- renderPlot({
+    conn <- get_db_connection()
+    
+    type_data <- dbGetQuery(conn, "
+    SELECT participation_type, COUNT(*) as count 
+    FROM applications 
+    GROUP BY participation_type
+  ")
+    
+    dbDisconnect(conn)
+    
+    if (nrow(type_data) > 0) {
+      type_data$type_ru <- ifelse(type_data$participation_type == "speaker", 
+                                  "Докладчики", "Слушатели")
+    
+      barplot(type_data$count,
+              names.arg = type_data$type_ru,
+              col = c("#17a2b8", "#6f42c1"),
+              border = NA,
+              ylab = "Количество заявок",
+              ylim = c(0, max(type_data$count) * 1.2))
+      
+      # Добавляем числа на столбцы
+      text(1:2, type_data$count, 
+           labels = paste0(type_data$count),
+           pos = 3, cex = 1.2, font = 2)
+      
+    } else {
+      plot(0, 0, type = "n", xlab = "", ylab = "", axes = FALSE,
+           main = "Типы участников")
+      text(0, 0, "Нет данных", cex = 1.2)
+    }
+  })
+  #Диаграмма рассеивания
+  output$conferences_popularity_plot <- renderPlot({
+    conn <- get_db_connection()
+    
+    conf_data <- dbGetQuery(conn, "
+    SELECT 
+      c.conference_id,
+      c.title,
+      c.date,
+      c.max_participants,
+      COUNT(a.application_id) as application_count,
+      COUNT(CASE WHEN a.status = 'approved' THEN 1 END) as approved_count
+    FROM conferences c
+    LEFT JOIN applications a ON c.conference_id = a.conference_id
+    GROUP BY c.conference_id, c.title, c.date, c.max_participants
+  ")
+    
+    dbDisconnect(conn)
+    
+    if (nrow(conf_data) > 0) {
+      # Преобразуем даты
+      conf_data$date <- as.Date(conf_data$date)
+      
+      # Считаем процент заполнения
+      conf_data$fill_percentage <- ifelse(conf_data$max_participants > 0,
+                                          conf_data$approved_count / conf_data$max_participants * 100,
+                                          0)
+      
+      # Цвета по проценту заполнения
+      conf_data$color <- ifelse(conf_data$fill_percentage > 80, "#dc3545",
+                                ifelse(conf_data$fill_percentage > 50, "#ffc107", 
+                                       "#28a745"))
+      
+      # Автоматическое определение границ дат
+      date_range <- range(conf_data$date)
+      date_span <- as.numeric(difftime(date_range[2], date_range[1], units = "days"))
+      
+      # Определяем интервал для меток в зависимости от диапазона дат
+      if (date_span > 365) {
+        # Больше года - показываем каждый квартал
+        date_breaks <- seq(from = as.Date(paste0(format(date_range[1], "%Y"), "-01-01")),
+                           to = as.Date(paste0(format(date_range[2], "%Y"), "-12-31")),
+                           by = "3 months")
+        date_labels <- "%b\n%Y"
+      } else if (date_span > 180) {
+        # Полгода-год - показываем каждый месяц
+        date_breaks <- seq(from = as.Date(paste0(format(date_range[1], "%Y-%m"), "-01")),
+                           to = as.Date(paste0(format(date_range[2], "%Y-%m"), "-01")),
+                           by = "month")
+        date_labels <- "%b\n%Y"
+      } else if (date_span > 90) {
+        # 3-6 месяцев - показываем каждые 2 недели
+        date_breaks <- seq(from = date_range[1], to = date_range[2], by = "2 weeks")
+        date_labels <- "%d %b"
+      } else {
+        # Меньше 3 месяцев - показываем каждую неделю
+        date_breaks <- seq(from = date_range[1], to = date_range[2], by = "week")
+        date_labels <- "%d %b"
+      }
+      
+      # Увеличиваем отступы для легенды
+      par(mar = c(5, 4, 4, 10), xpd = TRUE)
+      
+      # Основной график с автоматическими пределами
+      plot(conf_data$date, 
+           conf_data$application_count,
+           pch = 19,
+           cex = conf_data$max_participants / max(conf_data$max_participants, na.rm = TRUE) * 3 + 1,
+           col = conf_data$color,
+           xlab = "Дата конференции",
+           ylab = "Количество заявок",
+           xaxt = "n",
+           xlim = date_range + c(-10, 10))  # Добавляем небольшие отступы по краям
+      
+      # Добавляем метки дат
+      axis(1, at = date_breaks, labels = format(date_breaks, date_labels), cex.axis = 0.8)
+      
+      grid()
+      
+      # Легенда для заполняемости (справа за пределами графика)
+      legend_x <- par("usr")[2] + 0.05 * (par("usr")[2] - par("usr")[1])
+      legend(legend_x,
+             par("usr")[4],
+             legend = c(">80% заполнена", "50-80% заполнена", "<50% заполнена"),
+             pch = 19,
+             col = c("#dc3545", "#ffc107", "#28a745"),
+             title = "Заполняемость",
+             bty = "n",
+             cex = 0.8)
+      
+      # Легенда для размеров
+      legend_sizes <- c(50, 100, 200)
+      legend(legend_x,
+             par("usr")[4] - 0.4 * (par("usr")[4] - par("usr")[3]),
+             legend = paste("Лимит:", legend_sizes),
+             pch = 19,
+             pt.cex = legend_sizes / max(conf_data$max_participants, na.rm = TRUE) * 3 + 1,
+             col = "gray",
+             title = "Размер точки",
+             bty = "n",
+             cex = 1.1)
+      
+    } else {
+      plot(0, 0, type = "n", xlab = "", ylab = "", axes = FALSE, 
+           main = "Диаграмма рассеивания конференций")
+      text(0, 0, "Нет данных для построения графика", cex = 1.2)
     }
   })
   output$pending_apps <- renderValueBox({
