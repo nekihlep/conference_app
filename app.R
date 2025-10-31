@@ -211,7 +211,17 @@ server <- function(input, output, session) {
             
             tabPanel("📊 Отчеты",
                      wellPanel(
-                       h3("Отчеты по заявкам"),
+                       # Заголовок с кнопкой скачивания
+                       fluidRow(
+                         column(6,
+                                h3("Отчеты по заявкам")
+                         ),
+                         column(6, 
+                                style = "text-align: left; margin-top: 10px;",
+                                downloadButton("download_report", " Скачать отчет", 
+                                               class = "btn-primary")
+                         )
+                       ),
                        
                        fluidRow(
                          column(6,
@@ -351,7 +361,6 @@ server <- function(input, output, session) {
                      h3("Выход из системы"),
                      p("Вы уверены, что хотите выйти?"),
                      actionButton("confirm_logout_btn", "✅ Да, выйти", class = "btn-warning"),
-
                      actionButton("cancel_logout_btn", "❌ Отмена", class = "btn-secondary")
                    )
           )
@@ -765,20 +774,7 @@ server <- function(input, output, session) {
       "Нет активных конференций"
     }
   })
-  
-  output$applications_pie <- renderPlot({
-    apps <- user_applications()
-    if (nrow(apps) > 0) {
-      status_counts <- table(apps$status)
-      pie(status_counts, 
-          labels = paste(names(status_counts), "\n", status_counts),
-          col = c("#ffc107", "#28a745", "#dc3545"),
-          main = "Статус ваших заявок")
-    } else {
-      plot(0, 0, type = "n", xlab = "", ylab = "", axes = FALSE)
-      text(0, 0, "Нет данных о заявках", cex = 1.5)
-    }
-  })
+
   
   output$my_applications_table <- renderDT({
     apps <- user_applications()
@@ -819,7 +815,22 @@ server <- function(input, output, session) {
     }
   })
   # ГРАФИКИ
-#Статусы зяавок 
+#Статусы заявок для пользователей 
+  
+  output$applications_pie <- renderPlot({
+    apps <- user_applications()
+    if (nrow(apps) > 0) {
+      status_counts <- table(apps$status)
+      pie(status_counts, 
+        labels = c("На рассмотрении", "Одобрено", "Отклонено"),
+          col = c("#ffc107", "#28a745", "#dc3545"),
+          main = "Статус ваших заявок")
+    } else {
+      plot(0, 0, type = "n", xlab = "", ylab = "", axes = FALSE)
+      text(0, 0, "Нет данных о заявках", cex = 1.5)
+    }
+  })
+#Статусы заявок отчеты
   output$applications_status_plot <- renderPlot({
     conn <- get_db_connection()
     
