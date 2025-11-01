@@ -63,13 +63,13 @@ server <- function(input, output, session) {
       a.status,
       af.file_name,
       af.file_path,
-      a.applied_at
+      a.created_at
     FROM applications a
     JOIN users u ON a.user_id = u.user_id
     JOIN conferences c ON a.conference_id = c.conference_id
     LEFT JOIN application_files af ON a.application_id = af.application_id
     WHERE a.status = 'pending'
-    ORDER BY a.applied_at DESC
+    ORDER BY a.created_at DESC
   ")
     dbDisconnect(conn)
     return(applications)
@@ -100,8 +100,7 @@ server <- function(input, output, session) {
     }
     return(NULL)
   }
-  # Функция добавления новой конференции
-  # Функция добавления новой конференции
+
   add_new_conference <- function(title, description, date, location, max_participants) {
     conn <- get_db_connection()
     success <- tryCatch({

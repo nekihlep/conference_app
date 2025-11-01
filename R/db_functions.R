@@ -55,6 +55,7 @@ initialize_database <- function() {
     participation_type TEXT NOT NULL CHECK(participation_type IN ('speaker', 'listener')),
     topic TEXT,
     status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'approved', 'rejected')),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(user_id) REFERENCES users(user_id),
     FOREIGN KEY(conference_id) REFERENCES conferences(conference_id)
   )

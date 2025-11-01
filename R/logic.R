@@ -40,14 +40,13 @@ load_user_applications <- function(user_id) {
 # Функция загрузки всех заявок для админа
 load_all_applications <- function() {
   conn <- get_db_connection()
-  applications <- dbGetQuery(conn,
-                             "SELECT a.application_id, u.username, c.title, 
-          a.participation_type, a.topic, a.status,
-          a.applied_at
-   FROM applications a
-   JOIN users u ON a.user_id = u.user_id
-   JOIN conferences c ON a.conference_id = c.conference_id
-   ORDER BY a.applied_at DESC")
+  applications <- dbGetQuery(conn, "
+    SELECT a.*, u.username, c.title as conference_title 
+    FROM applications a 
+    JOIN users u ON a.user_id = u.user_id 
+    JOIN conferences c ON a.conference_id = c.conference_id 
+    ORDER BY a.created_at DESC
+  ")
   dbDisconnect(conn)
   return(applications)
 }
