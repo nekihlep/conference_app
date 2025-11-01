@@ -824,36 +824,7 @@ server <- function(input, output, session) {
     dbDisconnect(conn)
     datatable(users, options = list(pageLength = 10))
   })
-  # В server.R добавь:
-  output$download_report <- downloadHandler(
-    filename = function() {
-      paste("отчет-конференции-", Sys.Date(), ".pdf", sep = "")
-    },
-    content = function(file) {
-      # Создаем временный PDF файл
-      pdf(file, paper = "a4")
-      
-      # Заголовок отчета
-      grid::grid.text(paste("Отчет по заявкам на конференции\n", Sys.Date()), 
-                      gp = grid::gpar(fontsize = 16, fontface = "bold"))
-      grid::grid.newpage()
-      
-      # График 1: Статусы заявок
-      print(ggplot(...) + ggtitle("Статусы заявок"))  # твой график статусов
-      
-      grid::grid.newpage()
-      
-      # График 2: Типы участников  
-      print(ggplot(...) + ggtitle("Типы участников"))  # твой график типов
-      
-      grid::grid.newpage()
-      
-      # Таблица сводной статистики
-      grid::grid.table(summary_table)
-      
-      dev.off()
-    }
-  )
+  
 
   # таблицу заявок для админа
   output$pending_applications_table <- renderDT({

@@ -46,28 +46,21 @@ initialize_database <- function() {
         FOREIGN KEY(created_by) REFERENCES users(user_id)
       )
     ")
-    
-    # Таблица заявок 
+    #Таблица заявок 
     dbExecute(conn, "
-      CREATE TABLE IF NOT EXISTS applications (
-        application_id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER NOT NULL,
-        conference_id INTEGER NOT NULL,
-        participation_type TEXT NOT NULL CHECK(participation_type IN ('speaker', 'listener')),
-        
-        -- Данные для ДОКЛАДЧИКА
-        topic TEXT,              -- Тема доклада
-        qualification_file TEXT, -- Путь к файлу (подтверждение квалификации)
-        
-        -- Статус заявки (автоматически определяется по типу участия)
-        status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'approved', 'rejected')),
-
-        FOREIGN KEY(user_id) REFERENCES users(user_id),
-        FOREIGN KEY(conference_id) REFERENCES conferences(conference_id)
-      )
-    ")
+  CREATE TABLE IF NOT EXISTS applications (
+    application_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    conference_id INTEGER NOT NULL,
+    participation_type TEXT NOT NULL CHECK(participation_type IN ('speaker', 'listener')),
+    topic TEXT,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'approved', 'rejected')),
+    FOREIGN KEY(user_id) REFERENCES users(user_id),
+    FOREIGN KEY(conference_id) REFERENCES conferences(conference_id)
+  )
+")
     
-    # НОВАЯ таблица для файлов
+    # Таблица для файлов
     dbExecute(conn, "
       CREATE TABLE IF NOT EXISTS application_files (
         file_id INTEGER PRIMARY KEY AUTOINCREMENT,
