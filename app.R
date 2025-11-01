@@ -52,18 +52,29 @@ server <- function(input, output, session) {
   # Функция загрузки заявок на рассмотрение для админа
   load_pending_applications <- function() {
     conn <- get_db_connection()
-    applications <- dbGetQuery(conn,
-                               "SELECT a.application_id, u.username, c.title, 
-            a.participation_type, a.topic, a.status,
-            a.applied_at
-     FROM applications a
-     JOIN users u ON a.user_id = u.user_id
-     JOIN conferences c ON a.conference_id = c.conference_id
-     WHERE a.status = 'pending'
-     ORDER BY a.applied_at DESC")
+    applications <- dbGetQuery(conn, "
+    SELECT 
+      a.application_id, 
+      u.username, 
+      u.full_name,
+      c.title as conference_title, 
+      a.participation_type, 
+      a.topic, 
+      a.status,
+      af.file_name,
+      af.file_path,
+      a.applied_at
+    FROM applications a
+    JOIN users u ON a.user_id = u.user_id
+    JOIN conferences c ON a.conference_id = c.conference_id
+    LEFT JOIN application_files af ON a.application_id = af.application_id
+    WHERE a.status = 'pending'
+    ORDER BY a.applied_at DESC
+  ")
     dbDisconnect(conn)
     return(applications)
   }
+  
   # Функции для обновления статуса заявок
   approve_application <- function(application_id) {
     conn <- get_db_connection()
@@ -179,15 +190,24 @@ server <- function(input, output, session) {
           tabsetPanel(
             id = "admin_tabs",
             type = "tabs",
-            
             tabPanel("📋 Заявки на рассмотрение",
                      wellPanel(
                        h3("Заявки, требующие решения"),
                        p("Здесь будут заявки докладчиков на рассмотрении"),
                        DTOutput("pending_applications_table"),
                        br(),
-                       actionButton("approve_selected_btn", "✅ Одобрить выбранные", class = "btn-success"),
-                       actionButton("reject_selected_btn", "❌ Отклонить выбранные", class = "btn-danger")
+                       fluidRow(
+                         column(6,
+                                actionButton("approve_selected_btn", "✅ Одобрить выбранные", 
+                                             class = "btn-success", style = "width: 100%;")
+                         ),
+                         column(6,
+                                actionButton("reject_selected_btn", "❌ Отклонить выбранные", 
+                                             class = "btn-danger", style = "width: 100%;")
+                         )
+                       ),
+                       br(),
+                       uiOutput("file_download_ui")
                      )
             ),
             
@@ -398,8 +418,36 @@ server <- function(input, output, session) {
   })
   
   # ОБРАБОТЧИКИ СОБЫТИЙ
-  
-  
+  output$download_qualification_file <- downloadHandler(
+    filename = function() {
+      # Получаем имя файла из выбранной заявки
+      selected_rows <- input$pending_applications_table_rows_selected
+      if (length(selected_rows) > 0) {
+        applications <- load_pending_applications()
+        file_name <- applications$file_name[selected_rows[1]]
+        return(file_name)
+      }
+      return("qualification_file")
+    },
+    content = function(file) {
+      selected_rows <- input$pending_applications_table_rows_selected
+      if (length(selected_rows) > 0) {
+        applications <- load_pending_applications()
+        file_path <- applications$file_path[selected_rows[1]]
+        
+        # Копируем файл для скачивания
+        if (file.exists(file_path)) {
+          file.copy(file_path, file)
+        }
+      }
+    }
+  )
+  # В server.R добавь:
+  observeEvent(input$download_file, {
+    application_id <- input$download_file
+    # Запускаем скачивание
+    session$sendCustomMessage("downloadFile", application_id)
+  })
   # Загрузка данных при входе
   observeEvent(user$logged_in, {
     if (user$logged_in) {
@@ -527,6 +575,21 @@ server <- function(input, output, session) {
                                 ifelse(is.null(input$presentation_topic) || input$presentation_topic == "", 
                                        "Тема не указана", input$presentation_topic))
         )
+        new_application_id <- dbGetQuery(conn, "SELECT last_insert_rowid() AS id")$id
+        
+        if (!is.null(input$qualification_file)) {
+          file_info <- input$qualification_file
+          # Создаем папку uploads если ее нет
+          if (!dir.exists("uploads")) dir.create("uploads")
+          new_file_path <- file.path("uploads", paste0("qualification_", new_application_id, "_", file_info$name))
+          file.copy(file_info$datapath, new_file_path)
+          
+          # Сохраняем в новую таблицу
+          dbExecute(conn, "
+          INSERT INTO application_files (application_id, file_name, file_path)
+          VALUES (?, ?, ?)
+        ", params = list(new_application_id, file_info$name, new_file_path))
+        }
         showNotification("📝 Заявка отправлена на рассмотрение администратору", type = "message")
       }
       
@@ -630,15 +693,19 @@ server <- function(input, output, session) {
       
       # ОБНОВЛЯЕМ ДАННЫЕ ПОЛЬЗОВАТЕЛЕЙ АВТОМАТИЧЕСКИ
       # Обновляем таблицу заявок на рассмотрение
+      # таблицу заявок для админа
       output$pending_applications_table <- renderDT({
         applications <- load_pending_applications()
         if (nrow(applications) > 0) {
-          datatable(applications, 
-                    options = list(
-                      pageLength = 10,
-                      selection = 'multiple'
-                    ),
-                    rownames = FALSE)
+          datatable(
+            applications[, c("username", "full_name", "conference_title", "participation_type", "topic")],
+            options = list(
+              pageLength = 10,
+              selection = 'multiple'
+            ),
+            rownames = FALSE,
+            colnames = c('Логин', 'ФИО', 'Конференция', 'Тип участия', 'Тема доклада')
+          )
         } else {
           datatable(data.frame(Сообщение = "Нет заявок на рассмотрении"))
         }
@@ -757,18 +824,59 @@ server <- function(input, output, session) {
     dbDisconnect(conn)
     datatable(users, options = list(pageLength = 10))
   })
-  
+  # В server.R добавь:
+  output$download_report <- downloadHandler(
+    filename = function() {
+      paste("отчет-конференции-", Sys.Date(), ".pdf", sep = "")
+    },
+    content = function(file) {
+      # Создаем временный PDF файл
+      pdf(file, paper = "a4")
+      
+      # Заголовок отчета
+      grid::grid.text(paste("Отчет по заявкам на конференции\n", Sys.Date()), 
+                      gp = grid::gpar(fontsize = 16, fontface = "bold"))
+      grid::grid.newpage()
+      
+      # График 1: Статусы заявок
+      print(ggplot(...) + ggtitle("Статусы заявок"))  # твой график статусов
+      
+      grid::grid.newpage()
+      
+      # График 2: Типы участников  
+      print(ggplot(...) + ggtitle("Типы участников"))  # твой график типов
+      
+      grid::grid.newpage()
+      
+      # Таблица сводной статистики
+      grid::grid.table(summary_table)
+      
+      dev.off()
+    }
+  )
+
+  # таблицу заявок для админа
   output$pending_applications_table <- renderDT({
-    applications <- load_pending_applications() 
+    applications <- load_pending_applications()
     if (nrow(applications) > 0) {
-      datatable(applications, 
-                options = list(
-                  pageLength = 10,
-                  selection = 'multiple'
-                ),
-                rownames = FALSE) 
+      # Создаем русские названия колонок
+      display_data <- data.frame(
+        'Логин' = applications$username,
+        'ФИО' = applications$full_name,
+        'Конференция' = applications$conference_title,
+        'Тип участия' = ifelse(applications$participation_type == "speaker", "🎤 Докладчик", "👂 Слушатель"),
+        'Тема доклада' = applications$topic
+      )
+      
+      datatable(
+        display_data,
+        options = list(
+          pageLength = 10,
+          selection = 'multiple'
+        ),
+        rownames = FALSE
+      )
     } else {
-      # Если заявок нет, показываем сообщение
       datatable(data.frame(Сообщение = "Нет заявок на рассмотрении"))
     }
   })
@@ -834,6 +942,32 @@ server <- function(input, output, session) {
   observeEvent(input$download_report_btn, {
     showNotification("📋 Функция скачивания отчета находится в разработке", 
                      type = "message", duration = 5)
+  })
+  # Кнопка скачивания файла для админа
+  output$file_download_ui <- renderUI({
+    selected_rows <- input$pending_applications_table_rows_selected
+    if (length(selected_rows) > 0) {
+      applications <- load_pending_applications()
+      
+      # Берем первую выбранную заявку
+      app <- applications[selected_rows[1], ]
+      
+      if (!is.na(app$file_name) && app$file_name != "") {
+        div(
+          style = "margin-top: 15px; padding-top: 15px; border-top: 1px solid #eee;",
+          h5("📎 Файл квалификации:"),
+          downloadButton("download_qualification_file", 
+                         paste("Скачать", app$file_name),
+                         class = "btn-info"),
+          br()
+        )
+      } else {
+        div(
+          style = "margin-top: 15px; padding-top: 15px; border-top: 1px solid #eee;",
+          p("❌ В выбранной заявке нет файла", style = "color: gray;")
+        )
+      }
+    }
   })
   # ГРАФИКИ
 #График покажет количество заявок по дням
@@ -1090,5 +1224,6 @@ server <- function(input, output, session) {
     valueBox(count, "Всего заявок", icon = icon("list"), color = "blue")
   })
 }
+
 
 shinyApp(ui, server)

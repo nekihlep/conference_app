@@ -67,6 +67,21 @@ initialize_database <- function() {
       )
     ")
     
+    # НОВАЯ таблица для файлов
+    dbExecute(conn, "
+      CREATE TABLE IF NOT EXISTS application_files (
+        file_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        application_id INTEGER NOT NULL,
+        file_name TEXT NOT NULL,
+        file_path TEXT NOT NULL,
+        uploaded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY(application_id) REFERENCES applications(application_id) ON DELETE CASCADE
+      )
+    ")
+    
+    # ВЫЗОВИ ФУНКЦИЮ МИГРАЦИИ ЗДЕСЬ
+    migrate_existing_files()
+    
     # Тестовые данные
     hashed_admin_password <- sodium::password_store("admin")
     dbExecute(conn, "
@@ -80,7 +95,7 @@ initialize_database <- function() {
       VALUES ('user1', ?, 'user1@mail.ru', 'Иванов Иван', 'БГУИР', 'user')
     ", params = list(hashed_user_password))
     
-    # Тестовые конференции (используем date вместо start_date/end_date)
+    # Тестовые конференции
     dbExecute(conn, "
       INSERT OR IGNORE INTO conferences (title, description, date, location, max_participants, created_by)
       VALUES 
