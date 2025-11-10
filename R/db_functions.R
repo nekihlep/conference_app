@@ -54,11 +54,7 @@ initialize_database <- function() {
         user_id INTEGER NOT NULL,
         conference_id INTEGER NOT NULL,
         participation_type TEXT NOT NULL CHECK(participation_type IN ('speaker', 'listener')),
-        
-        -- Данные для ДОКЛАДЧИКА
-        topic TEXT,              -- Тема доклада
-        qualification_file TEXT, -- Путь к файлу (подтверждение квалификации)
-        
+        topic TEXT,
         -- Статус заявки (автоматически определяется по типу участия)
         status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'approved', 'rejected')),
 
@@ -78,9 +74,6 @@ initialize_database <- function() {
         FOREIGN KEY(application_id) REFERENCES applications(application_id) ON DELETE CASCADE
       )
     ")
-    
-    # ВЫЗОВИ ФУНКЦИЮ МИГРАЦИИ ЗДЕСЬ
-    migrate_existing_files()
     
     # Тестовые данные
     hashed_admin_password <- sodium::password_store("admin")

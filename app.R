@@ -4,6 +4,8 @@ library(DBI)
 library(RSQLite)
 library(sodium)
 library(DT)
+library(ggplot2)
+library(shinydashboard)
 source("R/db_functions.R")
 source("R/auth.R")
 source("R/logic.R")
@@ -101,7 +103,6 @@ server <- function(input, output, session) {
     return(NULL)
   }
   # Функция добавления новой конференции
-  # Функция добавления новой конференции
   add_new_conference <- function(title, description, date, location, max_participants) {
     conn <- get_db_connection()
     success <- tryCatch({
@@ -149,7 +150,7 @@ server <- function(input, output, session) {
                   choices = c("Нет доступных конференций" = ""))
     }
   })
-  # Добавьте эту функцию после load_all_applications()
+
   check_conference_limit <- function(conference_id) {
     conn <- get_db_connection()
     # Получаем максимальное количество участников для конференции
@@ -824,7 +825,6 @@ server <- function(input, output, session) {
     dbDisconnect(conn)
     datatable(users, options = list(pageLength = 10))
   })
-  # В server.R добавь:
   output$download_report <- downloadHandler(
     filename = function() {
       paste("отчет-конференции-", Sys.Date(), ".pdf", sep = "")
