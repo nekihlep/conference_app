@@ -1,0 +1,2 @@
+Apache Hadoop framework for distributed processing
+MapReduce programming model for large datasets

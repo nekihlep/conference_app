@@ -4,8 +4,6 @@ library(DBI)
 library(RSQLite)
 library(sodium)
 library(DT)
-library(ggplot2)
-library(shinydashboard)
 source("R/db_functions.R")
 source("R/auth.R")
 source("R/logic.R")
@@ -51,6 +49,18 @@ server <- function(input, output, session) {
     user_applications(applications)
   }
   
+  # Настройка шрифтов для русского языка
+  setup_russian_fonts <- function() {
+    # Устанавливаем шрифт для русского текста
+    par(family = "sans")  # Используем стандартный шрифт
+    
+    # Если есть проблемы, пробуем другие варианты
+    if (.Platform$OS.type == "windows") {
+      try(par(family = "Arial"), silent = TRUE)
+    } else {
+      try(par(family = "Helvetica"), silent = TRUE)
+    }
+  }
   # Функция загрузки заявок на рассмотрение для админа
   load_pending_applications <- function() {
     conn <- get_db_connection()
@@ -103,6 +113,7 @@ server <- function(input, output, session) {
     return(NULL)
   }
   # Функция добавления новой конференции
+  # Функция добавления новой конференции
   add_new_conference <- function(title, description, date, location, max_participants) {
     conn <- get_db_connection()
     success <- tryCatch({
@@ -150,7 +161,7 @@ server <- function(input, output, session) {
                   choices = c("Нет доступных конференций" = ""))
     }
   })
-
+  # Добавьте эту функцию после load_all_applications()
   check_conference_limit <- function(conference_id) {
     conn <- get_db_connection()
     # Получаем максимальное количество участников для конференции
@@ -233,6 +244,7 @@ server <- function(input, output, session) {
                          )
                       
                        ),
+                       downloadLink("download_report", label = NULL, style = "display: none;"),
                        
                        fluidRow(
                          column(6,
@@ -825,6 +837,7 @@ server <- function(input, output, session) {
     dbDisconnect(conn)
     datatable(users, options = list(pageLength = 10))
   })
+  # В server.R добавь:
   output$download_report <- downloadHandler(
     filename = function() {
       paste("отчет-конференции-", Sys.Date(), ".pdf", sep = "")
@@ -938,10 +951,220 @@ server <- function(input, output, session) {
       p("Нет активных конференций")
     }
   })
-  # отчет
+  # Создаем папку для отчетов если ее нет
+  reports_dir <- "reports/generated"
+  if (!dir.exists(reports_dir)) {
+    dir.create(reports_dir, recursive = TRUE)
+  }
+  # ОТЧЕТ!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  # Обработчик кнопки скачивания PDF отчета - ФИНАЛЬНАЯ ВЕРСИЯ
   observeEvent(input$download_report_btn, {
-    showNotification("📋 Функция скачивания отчета находится в разработке", 
-                     type = "message", duration = 5)
+    showNotification("📊 Генерируем PDF отчет...", type = "message")
+    
+    file_name <- paste0("report-conference-", format(Sys.time(), "%Y-%m-%d_%H-%M-%S"), ".pdf")
+    file_path <- file.path(reports_dir, file_name)
+    
+    tryCatch({
+      # Создаем PDF
+      pdf(file_path, paper = "a4", width = 8.3, height = 11.7)
+      
+      # Устанавливаем шрифты
+      par(family = "Helvetica", mar = c(3, 3, 3, 2))
+      
+      # Получаем все данные
+      conn <- get_db_connection()
+      
+      total_apps <- dbGetQuery(conn, "SELECT COUNT(*) as count FROM applications")$count
+      total_users <- dbGetQuery(conn, "SELECT COUNT(*) as count FROM users")$count
+      total_conferences <- dbGetQuery(conn, "SELECT COUNT(*) as count FROM conferences WHERE status = 'active'")$count
+      
+      status_data <- dbGetQuery(conn, "
+      SELECT status, COUNT(*) as count 
+      FROM applications 
+      GROUP BY status
+    ")
+      
+      type_data <- dbGetQuery(conn, "
+      SELECT participation_type, COUNT(*) as count 
+      FROM applications 
+      GROUP BY participation_type
+    ")
+      
+      conf_stats <- dbGetQuery(conn, "
+      SELECT 
+        c.title,
+        c.date,
+        COUNT(a.application_id) as total_apps,
+        COUNT(CASE WHEN a.status = 'approved' THEN 1 END) as approved,
+        COUNT(CASE WHEN a.status = 'pending' THEN 1 END) as pending,
+        COUNT(CASE WHEN a.status = 'rejected' THEN 1 END) as rejected
+      FROM conferences c
+      LEFT JOIN applications a ON c.conference_id = a.conference_id
+      WHERE c.status = 'active'
+      GROUP BY c.conference_id, c.title, c.date
+      ORDER BY c.date DESC
+    ")
+      
+      dbDisconnect(conn)
+      
+      # СТРАНИЦА 1: ОСНОВНАЯ СТАТИСТИКА (без рамки)
+      plot(0, 0, type = "n", xlab = "", ylab = "", axes = FALSE, 
+           xlim = c(0, 10), ylim = c(0, 10))
+      
+      # Заголовок
+      text(5, 9, "CONFERENCE APPLICATION SYSTEM", cex = 1.3, font = 2)
+      text(5, 8.5, "STATISTICS REPORT", cex = 1.1)
+      text(5, 8, format(Sys.Date(), "%Y-%m-%d"), cex = 0.9)
+      
+      # Основная статистика (простой текст)
+      text(5, 6.5, "SUMMARY", font = 2, cex = 1.0)
+      text(3, 6, paste("Total applications:", total_apps), adj = 0, cex = 0.9)
+      text(3, 5.5, paste("Total users:", total_users), adj = 0, cex = 0.9)
+      text(3, 5, paste("Active conferences:", total_conferences), adj = 0, cex = 0.9)
+      
+      # СТРАНИЦА 2: Application Status с легендой и процентами
+      plot(0, 0, type = "n", xlab = "", ylab = "", axes = FALSE, 
+           xlim = c(0, 10), ylim = c(0, 10))
+      text(5, 9.5, "APPLICATION STATUS", font = 2, cex = 1.2)
+      
+      if (nrow(status_data) > 0) {
+        par(new = TRUE, mar = c(1, 1, 3, 1))
+        
+        # Считаем проценты
+        total <- sum(status_data$count)
+        status_data$percent <- round(status_data$count / total * 100, 1)
+        
+        status_labels <- c("Pending", "Approved", "Rejected")
+        colors <- c("#ffc107", "#28a745", "#dc3545")
+        
+        # Круговая диаграмма с процентами на секторах
+        pie(status_data$count, 
+            labels = paste0(status_data$percent, "%"),
+            col = colors,
+            main = "",
+            radius = 0.8,
+            cex = 1.0)
+        legend(0.5, -0.2, 
+               legend = paste0(c("Pending", "Approved", "Rejected"), ": ", status_data$count),
+               fill = colors,
+               cex = 0.9,
+               bty = "n",
+               xjust = 0.5,
+               horiz = TRUE)
+      }
+      
+      # СТРАНИЦА 3: Participant Types
+      plot(0, 0, type = "n", xlab = "", ylab = "", axes = FALSE, 
+           xlim = c(0, 10), ylim = c(0, 10))
+      text(5, 9.5, "PARTICIPANT TYPES", font = 2, cex = 1.2)
+      
+      if (nrow(type_data) > 0) {
+        par(new = TRUE, mar = c(5, 4, 4, 2))
+        
+        type_labels <- ifelse(type_data$participation_type == "speaker", "Speakers", "Listeners")
+        
+        # Столбчатая диаграмма
+        bp <- barplot(type_data$count,
+                      names.arg = type_labels,
+                      col = c("#17a2b8", "#6f42c1"),
+                      main = "",
+                      ylab = "Count",
+                      border = NA,
+                      ylim = c(0, max(type_data$count) * 1.2),
+                      cex.names = 0.9,
+                      cex.axis = 0.8)
+        
+        # Цифры на столбцах
+        text(bp, type_data$count + max(type_data$count) * 0.05, 
+             type_data$count, 
+             cex = 1.0, 
+             font = 2)
+      }
+      
+      # СТРАНИЦА 4: Conference Statistics с английскими названиями
+      plot(0, 0, type = "n", xlab = "", ylab = "", axes = FALSE, 
+           xlim = c(0, 10), ylim = c(0, 12))
+      text(5, 11.5, "CONFERENCE STATISTICS", font = 2, cex = 1.2)
+      
+      if (nrow(conf_stats) > 0) {
+        # Заменяем русские названия на английские
+        conf_stats$display_title <- sapply(conf_stats$title, function(title) {
+          # Простые замены для часто встречающихся русских слов
+          eng_title <- title
+          eng_title <- gsub("конференц", "Conference", eng_title, ignore.case = TRUE)
+          eng_title <- gsub("семинар", "Seminar", eng_title, ignore.case = TRUE)
+          eng_title <- gsub("форум", "Forum", eng_title, ignore.case = TRUE)
+          eng_title <- gsub("симпозиум", "Symposium", eng_title, ignore.case = TRUE)
+          eng_title <- gsub("съезд", "Congress", eng_title, ignore.case = TRUE)
+          eng_title <- gsub("встреча", "Meeting", eng_title, ignore.case = TRUE)
+          eng_title <- gsub("совещание", "Conference", eng_title, ignore.case = TRUE)
+          
+          # Если остались русские буквы, заменяем на "Conference X"
+          if (grepl("[А-Яа-я]", eng_title)) {
+            return(paste("Conference", sample(1000:9999, 1)))
+          }
+          return(eng_title)
+        })
+        
+        # Заголовки таблицы
+        y_pos <- 10.5
+        text(0.5, y_pos, "Conference", font = 2, adj = 0, cex = 0.7)
+        text(5.5, y_pos, "Date", font = 2, cex = 0.7)
+        text(7, y_pos, "Total", font = 2, cex = 0.7)
+        text(7.8, y_pos, "Appr", font = 2, cex = 0.7)
+        text(8.6, y_pos, "Pend", font = 2, cex = 0.7)
+        text(9.4, y_pos, "Rej", font = 2, cex = 0.7)
+        
+        # Разделительная линия
+        segments(0.3, 10.3, 9.7, 10.3)
+        
+        # Данные таблицы
+        for(i in 1:min(18, nrow(conf_stats))) {
+          y_pos <- y_pos - 0.35
+          
+          # Обрезаем длинные названия
+          conf_name <- ifelse(nchar(conf_stats$display_title[i]) > 30, 
+                              paste0(substr(conf_stats$display_title[i], 1, 27), "..."), 
+                              conf_stats$display_title[i])
+          
+          # Форматируем дату (только год-месяц-день)
+          conf_date <- ifelse(!is.na(conf_stats$date[i]), 
+                              as.character(conf_stats$date[i]), 
+                              "N/A")
+          
+          text(0.5, y_pos, conf_name, adj = 0, cex = 0.6)
+          text(5.5, y_pos, conf_date, cex = 0.6)
+          text(7, y_pos, conf_stats$total_apps[i], cex = 0.6)
+          text(7.8, y_pos, conf_stats$approved[i], cex = 0.6)
+          text(8.6, y_pos, conf_stats$pending[i], cex = 0.6)
+          text(9.4, y_pos, conf_stats$rejected[i], cex = 0.6)
+        }
+        
+        if (nrow(conf_stats) > 18) {
+          text(5, y_pos - 0.6, paste("... and", nrow(conf_stats) - 18, "more conferences"), 
+               cex = 0.6, font = 3)
+        }
+      }
+      
+      dev.off()
+      
+      showNotification(paste("✅ PDF report saved:", file_name), type = "message")
+      
+      # Настраиваем скачивание
+      output$download_report <- downloadHandler(
+        filename = function() {
+          file_name
+        },
+        content = function(file) {
+          file.copy(file_path, file)
+        }
+      )
+      
+      session$sendCustomMessage('downloadFile', 'download_report')
+      
+    }, error = function(e) {
+      showNotification(paste("❌ Error creating report:", e$message), type = "error")
+    })
   })
   # Кнопка скачивания файла для админа
   output$file_download_ui <- renderUI({
