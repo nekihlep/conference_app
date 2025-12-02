@@ -7,7 +7,7 @@ pipeline {
                 echo '🚀 Запускаем тесты системы...'
                 
                 // Просто запускаем существующие тесты
-                bash '''
+                bat '''
                 # Устанавливаем пакеты если нужно
                 Rscript -e "if(!require('testthat')) install.packages('testthat', repos='https://cloud.r-project.org')"
                 Rscript -e "if(!require('DBI')) install.packages('DBI', repos='https://cloud.r-project.org')"
