@@ -1,57 +1,63 @@
 test_that("check_conference_limit корректно проверяет лимиты", {
-  mock_conn <- structure(list(), class = "DBIConnection")
+  # Используем mockery напрямую
+  library(mockery)
   
-  with_mock(
-    get_db_connection = function() mock_conn,
-    dbGetQuery = function(conn, query, params) {
-      if (grepl("max_participants", query)) {
-        return(data.frame(max_participants = 100))
-      } else {
-        return(data.frame(count = 75))
-      }
-    },
-    dbDisconnect = function(conn) NULL,
-    {
-      result <- check_conference_limit(1)
-      expect_equal(result$max_participants, 100)
-      expect_equal(result$current_approved, 75)
-      expect_true(result$has_free_places)
-    }
-  )
+  # Мокаем функции
+  stub(check_conference_limit, "get_db_connection", 
+       function() structure(list(), class = "DBIConnection"))
+  
+  stub(check_conference_limit, "dbGetQuery", 
+       function(conn, query, params) {
+         if (grepl("max_participants", query)) {
+           return(data.frame(max_participants = 100))
+         } else {
+           return(data.frame(count = 75))
+         }
+       })
+  
+  stub(check_conference_limit, "dbDisconnect", 
+       function(conn) NULL)
+  
+  result <- check_conference_limit(1)
+  expect_equal(result$max_participants, 100)
+  expect_equal(result$current_approved, 75)
+  expect_true(result$has_free_places)
 })
 
 test_that("check_conference_limit определяет отсутствие мест", {
-  mock_conn <- structure(list(), class = "DBIConnection")
+  library(mockery)
   
-  with_mock(
-    get_db_connection = function() mock_conn,
-    dbGetQuery = function(conn, query, params) {
-      if (grepl("max_participants", query)) {
-        return(data.frame(max_participants = 100))
-      } else {
-        return(data.frame(count = 100))
-      }
-    },
-    dbDisconnect = function(conn) NULL,
-    {
-      result <- check_conference_limit(1)
-      expect_false(result$has_free_places)
-    }
-  )
+  stub(check_conference_limit, "get_db_connection", 
+       function() structure(list(), class = "DBIConnection"))
+  
+  stub(check_conference_limit, "dbGetQuery", 
+       function(conn, query, params) {
+         if (grepl("max_participants", query)) {
+           return(data.frame(max_participants = 100))
+         } else {
+           return(data.frame(count = 100))
+         }
+       })
+  
+  stub(check_conference_limit, "dbDisconnect", 
+       function(conn) NULL)
+  
+  result <- check_conference_limit(1)
+  expect_false(result$has_free_places)
 })
 
 test_that("validate_application_data разрешает новую заявку", {
-  mock_conn <- structure(list(), class = "DBIConnection")
+  library(mockery)
   
-  with_mock(
-    get_db_connection = function() mock_conn,
-    dbGetQuery = function(conn, query, params) {
-      return(data.frame())  # Нет существующих заявок
-    },
-    dbDisconnect = function(conn) NULL,
-    {
-      result <- validate_application_data(1, "speaker", 1)
-      expect_true(result)
-    }
-  )
+  stub(validate_application_data, "get_db_connection", 
+       function() structure(list(), class = "DBIConnection"))
+  
+  stub(validate_application_data, "dbGetQuery", 
+       function(conn, query, params) data.frame())
+  
+  stub(validate_application_data, "dbDisconnect", 
+       function(conn) NULL)
+  
+  result <- validate_application_data(1, "speaker", 1)
+  expect_true(result)
 })
