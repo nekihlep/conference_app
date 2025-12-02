@@ -2,19 +2,20 @@ pipeline {
     agent any
     
     stages {
-        stage('Запуск тестов R') {
+        stage('Тесты R') {
             steps {
-                echo '🚀 Запускаем тесты системы...'
-                
                 bat '''
-                rem Устанавливаем пакеты
-                "D:\\PROGRA~1\\R\\R-45~1.1\\bin\\x64\\Rscript.exe" -e "install.packages(c('testthat','DBI','RSQLite','mockery','sodium'), repos='https://cloud.r-project.org')"
-
-                rem Запускаем тесты С ЗАГРУЗКОЙ ФУНКЦИЙ
                 "D:\\PROGRA~1\\R\\R-45~1.1\\bin\\x64\\Rscript.exe" -e "
+                # Устанавливаем пакеты (тихо)
+                install.packages(c('testthat','DBI','RSQLite','mockery','sodium'), 
+                                 repos='https://cloud.r-project.org', quiet=TRUE)
+                
+                # Загружаем функции
                 source('R/db_functions.R')
-                source('R/auth.R')
+                source('R/auth.R') 
                 source('R/logic.R')
+                
+                # Запускаем ВСЕ тесты
                 testthat::test_dir('tests/testthat')
                 "
                 '''
