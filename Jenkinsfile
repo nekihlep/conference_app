@@ -7,14 +7,18 @@ pipeline {
                 echo '🚀 Запускаем тесты системы...'
                 
                 bat '''
-                rem Проверяем что R доступен
-                "D:\\PROGRA~1\\R\\R-45~1.1\\bin\\x64\\Rscript.exe" --version
-                
-                rem Устанавливаем пакеты
-                "D:\\PROGRA~1\\R\\R-45~1.1\\bin\\x64\\Rscript.exe" -e "if(!require('testthat')) install.packages('testthat', repos='https://cloud.r-project.org')"
-                "D:\\PROGRA~1\\R\\R-45~1.1\\bin\\x64\\Rscript.exe" -e "if(!require('DBI')) install.packages('DBI', repos='https://cloud.r-project.org')"
-                "D:\\PROGRA~1\\R\\R-45~1.1\\bin\\x64\\Rscript.exe" -e "if(!require('RSQLite')) install.packages('RSQLite', repos='https://cloud.r-project.org')"
-                
+                rem Устанавливаем ВСЕ нужные пакеты
+                "D:\\PROGRA~1\\R\\R-45~1.1\\bin\\x64\\Rscript.exe" -e "
+                packages <- c('testthat', 'DBI', 'RSQLite', 'mockery', 'sodium')
+                for (pkg in packages) {
+                  if (!require(pkg, character.only = TRUE)) {
+                    cat('Устанавливаю:', pkg, '\\n')
+                    install.packages(pkg, repos = 'https://cloud.r-project.org')
+                  }
+                }
+                cat('✅ Все пакеты установлены\\n')
+                "
+
                 rem Запускаем тесты
                 "D:\\PROGRA~1\\R\\R-45~1.1\\bin\\x64\\Rscript.exe" -e "testthat::test_dir('tests/testthat')"
                 '''
