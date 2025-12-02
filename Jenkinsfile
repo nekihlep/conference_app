@@ -7,16 +7,16 @@ pipeline {
                 echo '🚀 Запускаем тесты системы...'
                 
                 bat '''
-                # Проверяем где Rscript
-                where Rscript
+                # Проверяем что R доступен
+                "D:\\PROGRA~1\\R\\R-45~1.1\\bin\\x64\\Rscript.exe" --version
                 
-                # Указываем полный путь (обычно здесь)
-                "C:\\Program Files\\R\\R-4.2.0\\bin\\Rscript.exe" -e "if(!require('testthat')) install.packages('testthat', repos='https://cloud.r-project.org')"
-                "C:\\Program Files\\R\\R-4.2.0\\bin\\Rscript.exe" -e "if(!require('DBI')) install.packages('DBI', repos='https://cloud.r-project.org')"
-                "C:\\Program Files\\R\\R-4.2.0\\bin\\Rscript.exe" -e "if(!require('RSQLite')) install.packages('RSQLite', repos='https://cloud.r-project.org')"
+                # Устанавливаем пакеты
+                "D:\\PROGRA~1\\R\\R-45~1.1\\bin\\x64\\Rscript.exe" -e "if(!require('testthat')) install.packages('testthat', repos='https://cloud.r-project.org')"
+                "D:\\PROGRA~1\\R\\R-45~1.1\\bin\\x64\\Rscript.exe" -e "if(!require('DBI')) install.packages('DBI', repos='https://cloud.r-project.org')"
+                "D:\\PROGRA~1\\R\\R-45~1.1\\bin\\x64\\Rscript.exe" -e "if(!require('RSQLite')) install.packages('RSQLite', repos='https://cloud.r-project.org')"
                 
                 # Запускаем тесты
-                "C:\\Program Files\\R\\R-4.2.0\\bin\\Rscript.exe" -e "testthat::test_dir('tests/testthat')"
+                "D:\\PROGRA~1\\R\\R-45~1.1\\bin\\x64\\Rscript.exe" -e "testthat::test_dir('tests/testthat')"
                 '''
             }
         }
