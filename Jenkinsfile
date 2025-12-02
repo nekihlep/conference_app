@@ -14,8 +14,16 @@ pipeline {
                 "D:\\PROGRA~1\\R\\R-45~1.1\\bin\\x64\\Rscript.exe" -e "if(!require('mockery')) install.packages('mockery', repos='https://cloud.r-project.org')"
                 "D:\\PROGRA~1\\R\\R-45~1.1\\bin\\x64\\Rscript.exe" -e "if(!require('sodium')) install.packages('sodium', repos='https://cloud.r-project.org')"
 
-                rem Запускаем тесты
-                "D:\\PROGRA~1\\R\\R-45~1.1\\bin\\x64\\Rscript.exe" -e "testthat::test_dir('tests/testthat')"
+                rem Запускаем тесты С ЗАГРУЗКОЙ ФУНКЦИЙ
+                "D:\\PROGRA~1\\R\\R-45~1.1\\bin\\x64\\Rscript.exe" -e "
+                # Загружаем функции приложения
+                source('R/db_functions.R')
+                source('R/auth.R')
+                source('R/logic.R')
+                
+                # Запускаем тесты
+                testthat::test_dir('tests/testthat')
+                "
                 '''
             }
         }
