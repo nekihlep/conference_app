@@ -7,17 +7,12 @@ pipeline {
                 echo '🚀 Запускаем тесты системы...'
                 
                 bat '''
-                rem Устанавливаем ВСЕ нужные пакеты
-                "D:\\PROGRA~1\\R\\R-45~1.1\\bin\\x64\\Rscript.exe" -e "
-                packages <- c('testthat', 'DBI', 'RSQLite', 'mockery', 'sodium')
-                for (pkg in packages) {
-                  if (!require(pkg, character.only = TRUE)) {
-                    cat('Устанавливаю:', pkg, '\\n')
-                    install.packages(pkg, repos = 'https://cloud.r-project.org')
-                  }
-                }
-                cat('✅ Все пакеты установлены\\n')
-                "
+                rem Устанавливаем пакеты по одному
+                "D:\\PROGRA~1\\R\\R-45~1.1\\bin\\x64\\Rscript.exe" -e "if(!require('testthat')) install.packages('testthat', repos='https://cloud.r-project.org')"
+                "D:\\PROGRA~1\\R\\R-45~1.1\\bin\\x64\\Rscript.exe" -e "if(!require('DBI')) install.packages('DBI', repos='https://cloud.r-project.org')"
+                "D:\\PROGRA~1\\R\\R-45~1.1\\bin\\x64\\Rscript.exe" -e "if(!require('RSQLite')) install.packages('RSQLite', repos='https://cloud.r-project.org')"
+                "D:\\PROGRA~1\\R\\R-45~1.1\\bin\\x64\\Rscript.exe" -e "if(!require('mockery')) install.packages('mockery', repos='https://cloud.r-project.org')"
+                "D:\\PROGRA~1\\R\\R-45~1.1\\bin\\x64\\Rscript.exe" -e "if(!require('sodium')) install.packages('sodium', repos='https://cloud.r-project.org')"
 
                 rem Запускаем тесты
                 "D:\\PROGRA~1\\R\\R-45~1.1\\bin\\x64\\Rscript.exe" -e "testthat::test_dir('tests/testthat')"
