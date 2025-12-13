@@ -1,0 +1,7 @@
+library(testthat)
+library(DBI)
+library(RSQLite)
+source("R/db_functions.R")
+source("R/auth.R")
+source("R/logic.R")
+test_dir("tests/testthat")
