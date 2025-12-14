@@ -916,16 +916,27 @@ server <- function(input, output, session) {
   })
 
   
-  output$my_applications_table <- renderDT({
+    output$my_applications_table <- renderDT({
     apps <- user_applications()
+    
     if (nrow(apps) > 0) {
-      display_data <- apps[, c("conference_title", "participation_type", "topic", "status")]
-      display_data$participation_type <- ifelse(display_data$participation_type == "speaker", "Докладчик", "Слушатель")
-      display_data$status <- ifelse(display_data$status == "pending", "На рассмотрении",
-                                    ifelse(display_data$status == "approved", "Одобрено", "Отклонено"))
+      apps$status_display <- ifelse(
+        apps$status == "pending", "На рассмотрении",
+        ifelse(apps$status == "approved", "Одобрено", "Отклонено")
+      )
+      
+      display_data <- data.frame(
+        Конференция = apps$conference_title,
+        `Тип участия` = ifelse(apps$participation_type == "speaker", "Докладчик", "Слушатель"),
+        `Тема доклада` = ifelse(is.na(apps$topic) | apps$topic == "", 
+                                ifelse(apps$participation_type == "speaker", "Тема не указана", ""),
+                                apps$topic),
+        Статус = apps$status_display
+      )
+      
       datatable(display_data, 
-                colnames = c("Конференция", "Тип участия", "Тема доклада", "Статус"),
-                options = list(pageLength = 5))
+                options = list(pageLength = 5),
+                rownames = FALSE)
     }
   })
   
@@ -1237,12 +1248,34 @@ server <- function(input, output, session) {
   # Круговая диаграмма для пользователя (главная страница)
   output$applications_pie <- renderPlot({
     apps <- user_applications()
+    
     if (nrow(apps) > 0) {
-      status_counts <- table(apps$status)
-      pie(status_counts,
-          labels = paste(c("На рассмотрении", "Одобрено", "Отклонено"), "\n", status_counts),
-          col = c("#ffc107", "#28a745", "#dc3545"),
-          main = "Статус ваших заявок")
+      status_counts <- c(
+        "На рассмотрении" = sum(apps$status == "pending"),
+        "Одобрено" = sum(apps$status == "approved"),
+        "Отклонено" = sum(apps$status == "rejected")
+      )
+      status_counts <- status_counts[status_counts > 0]
+      
+      if (sum(status_counts) > 0) {
+        colors <- c(
+          "На рассмотрении" = "#ffc107",
+          "Одобрено" = "#28a745",
+          "Отклонено" = "#dc3545"
+        )
+        pie_colors <- colors[names(status_counts)]
+
+        labels <- paste0(names(status_counts), "\n", status_counts)
+        
+        pie(status_counts,
+            labels = labels,
+            col = pie_colors,
+            main = "Статус ваших заявок",
+            cex.main = 1.2)
+      } else {
+        plot(0, 0, type = "n", xlab = "", ylab = "", axes = FALSE)
+        text(0, 0, "Нет заявок", cex = 1.5)
+      }
     } else {
       plot(0, 0, type = "n", xlab = "", ylab = "", axes = FALSE)
       text(0, 0, "Нет данных о заявках", cex = 1.5)
